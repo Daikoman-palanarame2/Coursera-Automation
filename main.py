@@ -74,7 +74,7 @@ def process_syllabus_node(
                     video_sel = get_selector("video_player")
                     if hpage.page.locator(video_sel).count() > 0:
                         video_found = True
-                        hpage.page.evaluate('''(sel) => {
+                        hpage.page.evaluate('''async (sel) => {
                             const video = document.querySelector(sel);
                             if (video) {
                                 video.muted = true;
@@ -107,7 +107,7 @@ def process_syllabus_node(
                             video_sel = get_selector("video_player")
                             if frame.locator(video_sel).count() > 0:
                                 video_found = True
-                                frame.evaluate('''(sel) => {
+                                frame.evaluate('''async (sel) => {
                                     const video = document.querySelector(sel);
                                     if (video) {
                                         video.muted = true;
