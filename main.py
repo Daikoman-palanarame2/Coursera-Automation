@@ -12,6 +12,7 @@ from project_accce.orchestrator.db import ACCCEStorage
 from project_accce.orchestrator.notifier import send_discord_notification
 from project_accce.orchestrator.scheduler import run_gradebook_polling_cycle
 from project_accce.schemas import SyllabusNode
+from project_accce.layout import fetch_layout_map, get_selector
 
 def verify_node_completed_on_page(hpage: HumanizedPage, node_id: str, timeout_sec: int = 15) -> bool:
     print(f"[ENGINE] Verifying completion status for node {node_id} on page...")
@@ -66,10 +67,11 @@ def process_syllabus_node(
                 
                 # Check main page
                 try:
-                    if hpage.page.locator("video").count() > 0:
+                    video_sel = get_selector("video_player")
+                    if hpage.page.locator(video_sel).count() > 0:
                         video_found = True
-                        hpage.page.evaluate('''async () => {
-                            const video = document.querySelector('video');
+                        hpage.page.evaluate('''(sel) => {
+                            const video = document.querySelector(sel);
                             if (video) {
                                 video.muted = true;
                                 try {
@@ -89,7 +91,7 @@ def process_syllabus_node(
                                 }
                             }
                             return false;
-                        }''')
+                        }''', video_sel)
                         print(f"[ENGINE] Video playback initiated on main page (attempt {attempt + 1}).")
                 except Exception as e:
                     print(f"[ENGINE] Main page video error: {e}")
@@ -98,10 +100,11 @@ def process_syllabus_node(
                     # Check all frames
                     for frame in hpage.page.frames:
                         try:
-                            if frame.locator("video").count() > 0:
+                            video_sel = get_selector("video_player")
+                            if frame.locator(video_sel).count() > 0:
                                 video_found = True
-                                frame.evaluate('''async () => {
-                                    const video = document.querySelector('video');
+                                frame.evaluate('''(sel) => {
+                                    const video = document.querySelector(sel);
                                     if (video) {
                                         video.muted = true;
                                         try {
@@ -121,33 +124,24 @@ def process_syllabus_node(
                                         }
                                     }
                                     return false;
-                                }''')
+                                }''', video_sel)
                                 print(f"[ENGINE] Video playback initiated in frame: {frame.name or frame.url} (attempt {attempt + 1}).")
                                 break
                         except Exception:
                             continue
 
                 # Try to click any visible completion buttons (sometimes videos have them)
-                completed_btn_selectors = [
-                    "button:has-text('Mark as completed')",
-                    "button:has-text('Mark as Completed')",
-                    "button:has-text('I understand')",
-                    "button:has-text('I Understand')",
-                    "[data-testid='mark-complete-button']",
-                    ".mark-complete-button",
-                ]
+                btn_sel = get_selector("mark_completed")
                 clicked = False
-                for btn_sel in completed_btn_selectors:
-                    try:
-                        loc = hpage.page.locator(btn_sel)
-                        if loc.count() > 0 and loc.first.is_visible():
-                            hpage.humanized_click(btn_sel)
-                            print(f"[ENGINE] Clicked completion button '{btn_sel}' (attempt {attempt + 1}).")
-                            clicked = True
-                            time.sleep(3)
-                            break
-                    except Exception:
-                        continue
+                try:
+                    loc = hpage.page.locator(btn_sel)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        hpage.humanized_click(btn_sel)
+                        print(f"[ENGINE] Clicked completion button '{btn_sel}' (attempt {attempt + 1}).")
+                        clicked = True
+                        time.sleep(3)
+                except Exception:
+                    pass
 
                 if not video_found and not clicked:
                     print("[ENGINE] Video player not found and no click buttons. Falling back to page stay delay.")
@@ -268,61 +262,37 @@ def process_syllabus_node(
             }''')
             time.sleep(2)
             
-            start_selectors = [
-                "button[data-testid='CoverPageActionButton']",
-                "[data-testid='CoverPageActionButton']",
-                "button:has-text('Start')",
-                "button:has-text('Start Quiz')",
-                "button:has-text('Resume')",
-                "button:has-text('Start attempt')",
-                "button:has-text('Resume Quiz')",
-                "button:has-text('Agree and Continue')",
-                "button:has-text('Start Assignment')",
-                "button:has-text('Try again')",
-                "button:has-text('Retake')",
-                "button:has-text('Retake Quiz')",
-                "a:has-text('Start')",
-                "a:has-text('Start Quiz')",
-                "a:has-text('Resume')",
-                "a:has-text('Try again')",
-                "a:has-text('Retake')",
-                "a:has-text('Retake Quiz')"
-            ]
-            
             quiz_loaded = False
             clicked_start = False
             
             # Poll up to 30 seconds for start button or quiz form to render
             for _ in range(30):
-                if hpage.page.locator("div[data-testid^='part-Submission_'], .rc-Option, .rc-FormQuestion, .question-container, .rc-Form").count() > 0:
+                quiz_form_sel = get_selector("quiz_container")
+                if hpage.page.locator(quiz_form_sel).count() > 0:
                     print("[ENGINE] Already inside quiz. Skipping start sequence.")
                     quiz_loaded = True
                     break
                     
-                found_sel = None
-                for sel in start_selectors:
-                    loc = hpage.page.locator(sel)
-                    if loc.count() > 0 and loc.first.is_visible():
-                        # Wait for button to be enabled (not in loading/disabled state)
-                        try:
-                            is_disabled = loc.first.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')")
-                            if is_disabled:
-                                print(f"[ENGINE] Start button '{sel}' found but still loading/disabled. Waiting...")
-                                time.sleep(1)
-                                continue
-                        except Exception:
-                            pass
-                        found_sel = sel
-                        break
-                
-                if found_sel:
-                    print(f"[ENGINE] Found quiz start button: '{found_sel}'. Clicking...")
-                    hpage.humanized_click(found_sel)
+                start_sel = get_selector("start_quiz_button")
+                loc = hpage.page.locator(start_sel)
+                if loc.count() > 0 and loc.first.is_visible():
+                    # Wait for button to be enabled (not in loading/disabled state)
+                    try:
+                        is_disabled = loc.first.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')")
+                        if is_disabled:
+                            print(f"[ENGINE] Start button found but still loading/disabled. Waiting...")
+                            time.sleep(1)
+                            continue
+                    except Exception:
+                        pass
+                    
+                    print(f"[ENGINE] Found quiz start button. Clicking...")
+                    hpage.humanized_click(start_sel)
                     clicked_start = True
                     # Wait up to 8 seconds for quiz form to appear after start click
                     for _ in range(8):
                         time.sleep(1)
-                        if hpage.page.locator("div[data-testid^='part-Submission_'], .rc-Option, .rc-FormQuestion, .question-container, .rc-Form").count() > 0:
+                        if hpage.page.locator(quiz_form_sel).count() > 0:
                             print("[ENGINE] Quiz form loaded after clicking start/resume.")
                             quiz_loaded = True
                             break
@@ -339,32 +309,21 @@ def process_syllabus_node(
                 
             if clicked_start and not quiz_loaded:
                 # Handle checkboxes/dialogs
-                checkbox_sel = None
-                dialog_selectors = [
-                    "input[type='checkbox']#honor-code-checkbox",
-                    "input[type='checkbox'][name='honor-code']",
-                    "label:has-text('Honor Code') input",
-                    "input#agreement-checkbox",
-                    "input#agreement-checkbox-base",
-                    "input[type='checkbox']#agreement-checkbox-base",
-                    "input[type='checkbox']"
-                ]
+                checkbox_sel = get_selector("agreement_checkbox")
+                found_checkbox = False
                 for _ in range(5):
                     # Check if the quiz form has loaded while polling for checkboxes
-                    if hpage.page.locator("div[data-testid^='part-Submission_'], .rc-Option, .rc-FormQuestion, .question-container, .rc-Form").count() > 0:
+                    if hpage.page.locator(get_selector("quiz_container")).count() > 0:
                         print("[ENGINE] Quiz form loaded during dialog/checkbox polling. Skipping dialog handling.")
                         quiz_loaded = True
                         break
-                    for sel in dialog_selectors:
-                        if hpage.page.locator(sel).count() > 0:
-                            checkbox_sel = sel
-                            break
-                    if checkbox_sel:
+                    if hpage.page.locator(checkbox_sel).count() > 0:
+                        found_checkbox = True
                         break
                     time.sleep(1)
                     
-                if checkbox_sel and not quiz_loaded:
-                    print(f"[ENGINE] Found agreement checkbox: '{checkbox_sel}'. Checking safely...")
+                if found_checkbox and not quiz_loaded:
+                    print(f"[ENGINE] Found agreement checkbox. Checking safely...")
                     loc = hpage.page.locator(checkbox_sel).first
                     try:
                         is_checked = loc.evaluate("el => el.checked")
@@ -378,53 +337,33 @@ def process_syllabus_node(
                                 el.click();
                                 return 'self';
                             }''')
-                            print(f"[ENGINE] Checked agreement checkbox '{checkbox_sel}' via: {clicked}")
+                            print(f"[ENGINE] Checked agreement checkbox via: {clicked}")
                         else:
-                            print(f"[ENGINE] Agreement checkbox '{checkbox_sel}' is already checked.")
+                            print(f"[ENGINE] Agreement checkbox is already checked.")
                     except Exception as e:
-                        print(f"[ENGINE] Error checking checkbox '{checkbox_sel}': {e}. Falling back to click.")
+                        print(f"[ENGINE] Error checking checkbox: {e}. Falling back to click.")
                         hpage.humanized_click(checkbox_sel)
                     time.sleep(1.5)
                     
                 if not quiz_loaded:
-                    confirm_sel = None
-                    confirm_selectors = [
-                        "button:has-text('Continue')",
-                        "button:has-text('Start Quiz')",
-                        "button:has-text('Start attempt')",
-                        "button:has-text('Start Attempt')",
-                        "button:has-text('I agree')",
-                        "button:has-text('I Agree')",
-                        "button:has-text('Start Assignment')",
-                        "button:has-text('Agree and Continue')",
-                        "a:has-text('Continue')",
-                        "a:has-text('Start Quiz')",
-                        "a:has-text('Start attempt')",
-                        "a:has-text('Start Attempt')",
-                        "a:has-text('I agree')",
-                        "a:has-text('I Agree')",
-                        "a:has-text('Start Assignment')",
-                        "a:has-text('Agree and Continue')"
-                    ]
+                    confirm_sel = get_selector("modal_close_button")
+                    found_confirm = False
                     for _ in range(5):
                         # Check if the quiz form has loaded while polling for confirmation button
-                        if hpage.page.locator("div[data-testid^='part-Submission_'], .rc-Option, .rc-FormQuestion, .question-container, .rc-Form").count() > 0:
+                        if hpage.page.locator(get_selector("quiz_container")).count() > 0:
                             print("[ENGINE] Quiz form loaded during confirmation polling. Skipping confirmation click.")
                             quiz_loaded = True
                             break
-                        for sel in confirm_selectors:
-                            if hpage.page.locator(sel).count() > 0:
-                                confirm_sel = sel
-                                break
-                        if confirm_sel:
+                        if hpage.page.locator(confirm_sel).count() > 0:
+                            found_confirm = True
                             break
                         time.sleep(1)
                         
-                    if confirm_sel and not quiz_loaded:
-                        print(f"[ENGINE] Found confirmation button: '{confirm_sel}'. Clicking...")
+                    if found_confirm and not quiz_loaded:
+                        print(f"[ENGINE] Found confirmation button. Clicking...")
                         hpage.humanized_click(confirm_sel)
                         # Poll up to 15 seconds for quiz form to load after Continue
-                        quiz_form_sel = "div[data-testid^='part-Submission_'], .rc-Option, .rc-FormQuestion, .question-container, .rc-Form, [data-testid='question-prompt'], .css-k008qs, form[data-testid]"
+                        quiz_form_sel = get_selector("quiz_container")
                         for _ in range(15):
                             time.sleep(1)
                             if hpage.page.locator(quiz_form_sel).count() > 0:
@@ -438,7 +377,7 @@ def process_syllabus_node(
                     print(f"[ENGINE] Confirmation button not found! All visible button/link texts: {all_elems}")
                     
             # Widen quiz form selector to catch newer Coursera React quiz patterns
-            quiz_form_sel = "div[data-testid^='part-Submission_'], .rc-Option, .rc-FormQuestion, .question-container, .rc-Form, [data-testid='question-prompt'], .css-k008qs, form[data-testid]"
+            quiz_form_sel = get_selector("quiz_container")
             # Wait for questions to render
             try:
                 hpage.page.wait_for_selector(quiz_form_sel, timeout=15000)
@@ -639,6 +578,7 @@ class TeeLogger:
         self.log_file.flush()
 
 def main():
+    fetch_layout_map()
     logger = TeeLogger("project_accce.log")
     sys.stdout = logger
     sys.stderr = logger
@@ -727,45 +667,31 @@ def main():
                 break
                 
             # Check for Enroll/Enroll for free button and click it
-            # Using exact text matching (text-is) to prevent accidental clicks on "Enrolled"
-            enroll_selectors = [
-                "button:text-is('Enroll for free')",
-                "button:text-is('Enroll')",
-                "a:text-is('Enroll for free')",
-                "a:text-is('Enroll')"
-            ]
-            for sel in enroll_selectors:
-                loc = page.locator(sel)
-                if loc.count() > 0 and loc.first.is_visible():
-                    print(f"[ENGINE] Found enrollment button: '{sel}'. Clicking...")
+            sel = get_selector("enroll_button")
+            loc = page.locator(sel)
+            if loc.count() > 0 and loc.first.is_visible():
+                print(f"[ENGINE] Found enrollment button. Clicking...")
+                try:
                     try:
+                        loc.first.click(timeout=6000)
+                    except Exception:
+                        print("[ENGINE] Main enrollment button click intercepted or timed out. Falling back to JS click...")
+                        loc.first.evaluate("el => el.click()")
+                    time.sleep(4)
+                    
+                    # Check if a confirmation modal opened and click "Go to course" / "Enroll"
+                    sub_sel = get_selector("enroll_modal_button")
+                    sub_loc = page.locator(sub_sel)
+                    if sub_loc.count() > 0 and sub_loc.first.is_visible():
+                        print(f"[ENGINE] Clicking modal enrollment button...")
                         try:
-                            loc.first.click(timeout=6000)
+                            sub_loc.first.click(timeout=6000)
                         except Exception:
-                            print("[ENGINE] Main enrollment button click intercepted or timed out. Falling back to JS click...")
-                            loc.first.evaluate("el => el.click()")
+                            print("[ENGINE] Modal enrollment button click intercepted or timed out. Falling back to JS click...")
+                            sub_loc.first.evaluate("el => el.click()")
                         time.sleep(4)
-                        # Check if a confirmation modal opened and click "Go to course" / "Enroll"
-                        for sub_sel in [
-                            "button:has-text('Go to course')",
-                            "button:has-text('Go to Course')",
-                            "button:has-text('Enroll')",
-                            "button:has-text('Start learning')",
-                            "button:has-text('Continue')"
-                        ]:
-                            sub_loc = page.locator(sub_sel)
-                            if sub_loc.count() > 0 and sub_loc.first.is_visible():
-                                print(f"[ENGINE] Clicking modal enrollment button: '{sub_sel}'")
-                                try:
-                                    sub_loc.first.click(timeout=6000)
-                                except Exception:
-                                    print("[ENGINE] Modal enrollment button click intercepted or timed out. Falling back to JS click...")
-                                    sub_loc.first.evaluate("el => el.click()")
-                                time.sleep(4)
-                                break
-                    except Exception as e:
-                        print(f"[ENGINE] Error clicking enrollment button: {e}")
-                    break
+                except Exception as e:
+                    print(f"[ENGINE] Error clicking enrollment button: {e}")
                     
             time.sleep(1.5)
         else:

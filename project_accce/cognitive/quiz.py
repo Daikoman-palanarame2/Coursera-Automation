@@ -3,6 +3,7 @@ from typing import List
 import google.generativeai as genai
 from project_accce.behavior.page import HumanizedPage
 from project_accce.schemas import QuizPayload
+from project_accce.layout import get_selector
 
 def check_checkbox_safely(hpage: HumanizedPage, selector: str) -> bool:
     """
@@ -649,7 +650,7 @@ def solve_quiz_with_gemini(
         norm_q = normalize_text(q_text)
         
         # Select all question containers in the DOM
-        containers = hpage.page.locator("div[data-testid^='part-Submission_'], .rc-FormQuestion, .question-container, .rc-Form").all()
+        containers = hpage.page.locator(get_selector("quiz_container")).all()
         for c in containers:
             try:
                 # Strip honeypots/checkpoints text before matching
@@ -689,7 +690,7 @@ def solve_quiz_with_gemini(
             print(f"[ENGINE] Dynamically matched live question block for: '{q_text[:40]}...'")
             if matching_payload and matching_payload.question_type == "text":
                 if text_response:
-                    textareas = q_block.locator("textarea, input[type='text']").all()
+                    textareas = q_block.locator(get_selector("text_inputs")).all()
                     for idx, ipt in enumerate(textareas):
                         print(f"[ENGINE] Filling text response to input index {idx}: '{text_response[:60]}...'")
                         try:
@@ -704,7 +705,7 @@ def solve_quiz_with_gemini(
                     print(f"[ENGINE] Warning: Question is text-type but text_response is empty.")
             else:
                 # Find all radio/checkbox inputs inside the matched question container
-                inputs = q_block.locator("input[type='checkbox'], input[type='radio']").all()
+                inputs = q_block.locator(get_selector("choice_inputs")).all()
                 print(f"[ENGINE] Found {len(inputs)} input elements in matched question block.")
                 
                 is_checkbox_question = False
