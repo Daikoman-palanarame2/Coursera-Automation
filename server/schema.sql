@@ -1,7 +1,7 @@
--- Users Table: Tracks anonymous access tokens and current credit counts.
+-- Users Table: Tracks anonymous access tokens and their subscription expiration.
 CREATE TABLE IF NOT EXISTS users (
     api_key TEXT PRIMARY KEY,
-    credits INTEGER DEFAULT 5 NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     assigned_amount NUMERIC(8, 4) DEFAULT 0.0000 NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS payments (
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert a default demo token for local testing and validation
-INSERT INTO users (api_key, credits)
-VALUES ('test-demo-key-12345', 5)
+-- Insert a default demo token for local testing (expires in 10 minutes by default)
+INSERT INTO users (api_key, expires_at)
+VALUES ('test-demo-key-12345', CURRENT_TIMESTAMP + INTERVAL '10 minutes')
 ON CONFLICT (api_key) DO NOTHING;

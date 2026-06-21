@@ -3,7 +3,7 @@ import random
 import decimal
 import logging
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -39,11 +39,9 @@ COURSERA_LAYOUT_MAP = {
 
 # Db connection abstraction
 is_postgres = False
-db_conn = None
 
 if DATABASE_URL and DATABASE_URL.startswith("postgres"):
     import psycopg2
-    from psycopg2.extras import RealDictCursor
     is_postgres = True
     logger.info("Database: Using PostgreSQL (Supabase/Render)")
 else:
@@ -60,6 +58,14 @@ def get_db():
         conn.row_factory = sqlite3.Row
         return conn
 
+def parse_iso_datetime(dt_str: str) -> datetime:
+    """Helper to parse datetime strings from SQLite database."""
+    # SQLite datetimes might have trailing Z or spaces
+    dt_str = dt_str.replace("Z", "+00:00")
+    if " " in dt_str and "+" not in dt_str:
+        dt_str = dt_str.replace(" ", "T") + "+00:00"
+    return datetime.fromisoformat(dt_str)
+
 # Initialize tables
 def init_db():
     conn = get_db()
@@ -68,7 +74,7 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 api_key TEXT PRIMARY KEY,
-                credits INTEGER DEFAULT 5 NOT NULL,
+                expires_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
                 assigned_amount NUMERIC(8, 4) DEFAULT 0.0000 NOT NULL,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
@@ -84,7 +90,7 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 api_key TEXT PRIMARY KEY,
-                credits INTEGER DEFAULT 5 NOT NULL,
+                expires_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
                 assigned_amount REAL DEFAULT 0.0000 NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
@@ -98,10 +104,11 @@ def init_db():
                 processed_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        # Insert a default demo token for easy local verification
+        # Insert a default demo token (active for the next 10 minutes)
+        init_expiry = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
         cursor.execute("""
-            INSERT OR IGNORE INTO users (api_key, credits) VALUES ('test-demo-key-12345', 5);
-        """)
+            INSERT OR IGNORE INTO users (api_key, expires_at) VALUES ('test-demo-key-12345', ?);
+        """, (init_expiry,))
     conn.commit()
     conn.close()
 
@@ -130,27 +137,31 @@ def get_layout_map(x_api_key: Optional[str] = Header(None)):
         conn.close()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key.")
         
-    # Check if user has credits remaining
-    credits = user["credits"] if is_postgres else user[1]
+    # Check if subscription is active
+    raw_expiry = user["expires_at"] if is_postgres else user[1]
     
-    if credits > 0:
-        # Decrement credits
-        new_credits = credits - 1
-        if is_postgres:
-            cursor.execute("UPDATE users SET credits = %s WHERE api_key = %s", (new_credits, x_api_key))
-        else:
-            cursor.execute("UPDATE users SET credits = ? WHERE api_key = ?", (new_credits, x_api_key))
-        conn.commit()
-        conn.close()
-        logger.info(f"Authorized access for key {x_api_key}. Credits remaining: {new_credits}")
-        return {"status": "authorized", "credits": new_credits, "layout_map": COURSERA_LAYOUT_MAP}
+    if is_postgres:
+        expires_at = raw_expiry
+    else:
+        expires_at = parse_iso_datetime(raw_expiry)
         
-    # If out of credits, generate a random decimal payment amount (e.g. between 20.0001 and 20.0999)
+    now = datetime.now(timezone.utc)
+    
+    if expires_at > now:
+        conn.close()
+        logger.info(f"Authorized access for key {x_api_key}. Subscription active until: {expires_at}")
+        return {
+            "status": "authorized",
+            "subscription_expires_at": expires_at.isoformat(),
+            "layout_map": COURSERA_LAYOUT_MAP
+        }
+        
+    # If expired, generate a random unique payment salt for $3 USD (e.g. 3.0001 to 3.0999 USDT)
     assigned_amount = user["assigned_amount"] if is_postgres else user[2]
     if float(assigned_amount) <= 0.0:
-        # Generate random unique cents salt to link payment to this key
+        # Generate random unique cents salt
         salt = random.randint(1, 9999)
-        assigned_amount = decimal.Decimal("20.0000") + decimal.Decimal(salt) / decimal.Decimal("10000")
+        assigned_amount = decimal.Decimal("3.0000") + decimal.Decimal(salt) / decimal.Decimal("10000")
         if is_postgres:
             cursor.execute("UPDATE users SET assigned_amount = %s WHERE api_key = %s", (assigned_amount, x_api_key))
         else:
@@ -163,7 +174,7 @@ def get_layout_map(x_api_key: Optional[str] = Header(None)):
         status_code=status.HTTP_402_PAYMENT_REQUIRED,
         content={
             "status": "payment_required",
-            "message": "Free tier exhausted. Please top up your account.",
+            "message": "Subscription expired. Please subscribe to unlock unlimited runs for 1 month.",
             "payment_details": {
                 "destination_address": MASTER_WALLET,
                 "amount": float(assigned_amount),
@@ -175,31 +186,25 @@ def get_layout_map(x_api_key: Optional[str] = Header(None)):
 
 # Blockchain transaction polling check
 async def check_polygon_payments():
-    """
-    Background worker that runs if a MASTER_WALLET is specified, scanning 
-    Polygon logs for incoming USDT transfers matching our unique user cents salts.
-    """
     if not MASTER_WALLET or MASTER_WALLET == "0x0000000000000000000000000000000000000000":
         logger.warning("Blockchain Listener: MASTER_WALLET_ADDRESS not configured. Payment auto-reload disabled.")
         return
 
     logger.info(f"Blockchain Listener: Monitoring wallet {MASTER_WALLET} on Polygon chain...")
     
-    # Pad the target address to 32 bytes for EVM topic matching
     padded_wallet = "0x" + MASTER_WALLET[2:].zfill(64)
     transfer_event_topic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
     async with httpx.AsyncClient() as client:
         while True:
             try:
-                # Query Ethereum JSON-RPC eth_getLogs
                 rpc_payload = {
                     "jsonrpc": "2.0",
                     "method": "eth_getLogs",
                     "params": [{
                         "address": USDT_POLYGON_CONTRACT,
                         "topics": [transfer_event_topic, None, padded_wallet],
-                        "fromBlock": "latest" # In production, track last block height to avoid missing txs
+                        "fromBlock": "latest"
                     }],
                     "id": 1
                 }
@@ -208,12 +213,10 @@ async def check_polygon_payments():
                     result = response.json().get("result", [])
                     for log in result:
                         tx_hash = log.get("transactionHash")
-                        # USDT has 6 decimals on Polygon
                         raw_data = log.get("data")
                         amount_int = int(raw_data, 16)
                         amount_usdt = decimal.Decimal(amount_int) / decimal.Decimal("1000000")
                         
-                        # Process matched payment
                         await process_payment(tx_hash, amount_usdt)
             except Exception as e:
                 logger.error(f"Blockchain Listener Error: {e}")
@@ -236,28 +239,37 @@ async def process_payment(tx_hash: str, amount: decimal.Decimal):
         # Find user with matching assigned amount
         amount_float = float(amount)
         if is_postgres:
-            cursor.execute("SELECT api_key, credits FROM users WHERE assigned_amount = %s", (amount,))
+            cursor.execute("SELECT api_key, expires_at FROM users WHERE assigned_amount = %s", (amount,))
         else:
-            cursor.execute("SELECT api_key, credits FROM users WHERE assigned_amount = ?", (amount_float,))
+            cursor.execute("SELECT api_key, expires_at FROM users WHERE assigned_amount = ?", (amount_float,))
             
         matched_user = cursor.fetchone()
         if matched_user:
             api_key = matched_user["api_key"] if is_postgres else matched_user[0]
-            current_credits = matched_user["credits"] if is_postgres else matched_user[1]
-            new_credits = current_credits + 50 # Add 50 runs per top-up
+            raw_expiry = matched_user["expires_at"] if is_postgres else matched_user[1]
             
-            logger.info(f"Payment Match! Tx {tx_hash} of {amount_float} USDT matched to API Key {api_key}. Crediting 50 runs.")
+            if is_postgres:
+                current_expiry = raw_expiry
+            else:
+                current_expiry = parse_iso_datetime(raw_expiry)
+                
+            now = datetime.now(timezone.utc)
+            # If currently active, extend subscription. Otherwise, set expiry to 30 days from now.
+            start_time = current_expiry if current_expiry > now else now
+            new_expiry = start_time + timedelta(days=30)
+            
+            logger.info(f"Payment Match! Tx {tx_hash} of {amount_float} USDT matched to API Key {api_key}. Extending subscription to {new_expiry.isoformat()}.")
             
             if is_postgres:
                 cursor.execute("INSERT INTO payments (tx_hash, api_key, amount, network) VALUES (%s, %s, %s, %s)",
                                (tx_hash, api_key, amount, "polygon"))
-                cursor.execute("UPDATE users SET credits = %s, assigned_amount = 0 WHERE api_key = %s",
-                               (new_credits, api_key))
+                cursor.execute("UPDATE users SET expires_at = %s, assigned_amount = 0 WHERE api_key = %s",
+                               (new_expiry, api_key))
             else:
                 cursor.execute("INSERT INTO payments (tx_hash, api_key, amount, network) VALUES (?, ?, ?, ?)",
                                (tx_hash, api_key, amount_float, "polygon"))
-                cursor.execute("UPDATE users SET credits = ?, assigned_amount = 0 WHERE api_key = ?",
-                               (new_credits, api_key))
+                cursor.execute("UPDATE users SET expires_at = ?, assigned_amount = 0 WHERE api_key = ?",
+                               (new_expiry.isoformat(), api_key))
             conn.commit()
     except Exception as e:
         logger.error(f"Failed processing payment {tx_hash}: {e}")
