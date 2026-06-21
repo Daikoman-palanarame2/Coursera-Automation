@@ -1,8 +1,45 @@
 import os
 import sys
 import requests
+import uuid
+import hashlib
+import platform
+import subprocess
 
 layout_map = {}
+
+def get_device_fingerprint() -> str:
+    """Generates a stable, unique SHA-256 hash representing the local machine's hardware ID."""
+    system = platform.system()
+    hardware_identifiers = []
+    
+    # 1. Fallback MAC Address
+    hardware_identifiers.append(str(uuid.getnode()))
+    
+    # 2. OS-Specific Hardware GUIDs
+    try:
+        if system == "Windows":
+            import winreg
+            registry = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+            key = winreg.OpenKey(registry, r"SOFTWARE\Microsoft\Cryptography")
+            machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+            hardware_identifiers.append(machine_guid)
+        elif system == "Darwin": # macOS
+            out = subprocess.check_output(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"]).decode()
+            for line in out.splitlines():
+                if "IOPlatformUUID" in line:
+                    hardware_identifiers.append(line.split("=")[-1].strip().strip('"'))
+        elif system == "Linux":
+            for path in ["/etc/machine-id", "/var/lib/dbus/machine-id"]:
+                if os.path.exists(path):
+                    with open(path, "r") as f:
+                        hardware_identifiers.append(f.read().strip())
+    except Exception:
+        pass
+        
+    # Hash everything together to create a unique fingerprint
+    fingerprint_input = "|".join(hardware_identifiers).encode('utf-8')
+    return hashlib.sha256(fingerprint_input).hexdigest()
 
 def fetch_layout_map():
     """
@@ -22,9 +59,13 @@ def fetch_layout_map():
         sys.exit(1)
         
     try:
+        fingerprint = get_device_fingerprint()
         response = requests.get(
             f"{backend_url}/api/v1/layout-map",
-            headers={"X-API-Key": api_key},
+            headers={
+                "X-API-Key": api_key,
+                "X-Device-ID": fingerprint
+            },
             timeout=15
         )
         

@@ -83,6 +83,9 @@ def init_db():
                 api_key TEXT PRIMARY KEY,
                 expires_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
                 assigned_amount NUMERIC(8, 4) DEFAULT 0.0000 NOT NULL,
+                is_trial BOOLEAN DEFAULT FALSE NOT NULL,
+                device_id TEXT,
+                discord_id TEXT,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS payments (
@@ -99,6 +102,9 @@ def init_db():
                 api_key TEXT PRIMARY KEY,
                 expires_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
                 assigned_amount REAL DEFAULT 0.0000 NOT NULL,
+                is_trial INTEGER DEFAULT 0 NOT NULL,
+                device_id TEXT,
+                discord_id TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -126,7 +132,10 @@ def read_root():
     return {"status": "online", "message": "ACCCE licensing server is operational."}
 
 @app.get("/api/v1/layout-map")
-def get_layout_map(x_api_key: Optional[str] = Header(None)):
+def get_layout_map(
+    x_api_key: Optional[str] = Header(None),
+    x_device_id: Optional[str] = Header(None)
+):
     if not x_api_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing X-API-Key header.")
         
@@ -144,6 +153,39 @@ def get_layout_map(x_api_key: Optional[str] = Header(None)):
         conn.close()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key.")
         
+    is_trial_val = user["is_trial"] if is_postgres else user[3]
+    device_id_val = user["device_id"] if is_postgres else user[4]
+    
+    # Enforce device-id check on trial keys
+    if is_trial_val:
+        if not x_device_id:
+            conn.close()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing X-Device-ID header for trial key.")
+            
+        # Case A: Trial key is fresh (not locked to a device yet)
+        if not device_id_val:
+            # Check if this device has already claimed ANY other trial key in the database
+            if is_postgres:
+                cursor.execute("SELECT 1 FROM users WHERE is_trial = TRUE AND device_id = %s", (x_device_id,))
+            else:
+                cursor.execute("SELECT 1 FROM users WHERE is_trial = 1 AND device_id = ?", (x_device_id,))
+                
+            if cursor.fetchone():
+                conn.close()
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This device has already used a free trial.")
+                
+            # Lock this key to the current device
+            if is_postgres:
+                cursor.execute("UPDATE users SET device_id = %s WHERE api_key = %s", (x_device_id, x_api_key))
+            else:
+                cursor.execute("UPDATE users SET device_id = ? WHERE api_key = ?", (x_device_id, x_api_key))
+            conn.commit()
+            
+        # Case B: Trial key is already locked to a different device
+        elif device_id_val != x_device_id:
+            conn.close()
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This trial key is locked to another device.")
+
     # Check if subscription is active
     raw_expiry = user["expires_at"] if is_postgres else user[1]
     
@@ -270,12 +312,12 @@ async def process_payment(tx_hash: str, amount: decimal.Decimal):
             if is_postgres:
                 cursor.execute("INSERT INTO payments (tx_hash, api_key, amount, network) VALUES (%s, %s, %s, %s)",
                                (tx_hash, api_key, amount, "polygon"))
-                cursor.execute("UPDATE users SET expires_at = %s, assigned_amount = 0 WHERE api_key = %s",
+                cursor.execute("UPDATE users SET expires_at = %s, assigned_amount = 0, is_trial = FALSE, device_id = NULL WHERE api_key = %s",
                                (new_expiry, api_key))
             else:
                 cursor.execute("INSERT INTO payments (tx_hash, api_key, amount, network) VALUES (?, ?, ?, ?)",
                                (tx_hash, api_key, amount_float, "polygon"))
-                cursor.execute("UPDATE users SET expires_at = ?, assigned_amount = 0 WHERE api_key = ?",
+                cursor.execute("UPDATE users SET expires_at = ?, assigned_amount = 0, is_trial = 0, device_id = NULL WHERE api_key = ?",
                                (new_expiry.isoformat(), api_key))
             conn.commit()
     except Exception as e:
@@ -283,7 +325,91 @@ async def process_payment(tx_hash: str, amount: decimal.Decimal):
     finally:
         conn.close()
 
-# Start background worker when running
+# Start background worker and Discord Bot when running
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+
+if DISCORD_BOT_TOKEN:
+    import discord
+    from discord.ext import commands
+    import uuid
+    
+    intents = discord.Intents.default()
+    intents.message_content = True
+    discord_bot = commands.Bot(command_prefix="!", intents=intents)
+    
+    @discord_bot.event
+    async def on_ready():
+        logger.info(f"Discord Bot: Logged in as {discord_bot.user}!")
+        
+    @discord_bot.command(name="trial")
+    async def claim_trial(ctx):
+        discord_id = str(ctx.author.id)
+        logger.info(f"Discord Bot: User {ctx.author} ({discord_id}) requested a trial key.")
+        
+        conn = get_db()
+        cursor = get_cursor(conn)
+        
+        try:
+            # Check if this Discord user already has a key
+            if is_postgres:
+                cursor.execute("SELECT api_key FROM users WHERE discord_id = %s", (discord_id,))
+            else:
+                cursor.execute("SELECT api_key FROM users WHERE discord_id = ?", (discord_id,))
+                
+            existing_user = cursor.fetchone()
+            if existing_user:
+                await ctx.reply("❌ You have already claimed your free trial!")
+                return
+                
+            # Generate a new unique 3-hour trial key
+            trial_key = f"trial-{uuid.uuid4().hex[:12]}"
+            expiry_time = datetime.now(timezone.utc) + timedelta(hours=3)
+            
+            if is_postgres:
+                cursor.execute(
+                    "INSERT INTO users (api_key, expires_at, is_trial, discord_id) VALUES (%s, %s, TRUE, %s)",
+                    (trial_key, expiry_time, discord_id)
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO users (api_key, expires_at, is_trial, discord_id) VALUES (?, ?, 1, ?)",
+                    (trial_key, expiry_time.isoformat(), discord_id)
+                )
+            conn.commit()
+            
+            try:
+                dm_message = (
+                    f"🎉 **Your ACCCE 3-Hour Free Trial Key has been generated!**\n\n"
+                    f"🔑 **Token**: `{trial_key}`\n"
+                    f"⏰ **Expires in**: 3 Hours\n\n"
+                    f"To use the bot, set this key as your `COURSERA_ENGINE_TOKEN` in your `.env` file.\n"
+                    f"Once your trial expires, the bot will display instructions to extend it for 1 month for $3 USD."
+                )
+                await ctx.author.send(dm_message)
+                await ctx.reply("✅ I have sent your 3-hour free trial key to your Direct Messages (DMs)!")
+            except discord.Forbidden:
+                await ctx.reply("❌ I could not DM you the key. Please temporarily enable 'Allow Direct Messages from Server Members' in your Discord settings, and try again!")
+                # Delete key
+                if is_postgres:
+                    cursor.execute("DELETE FROM users WHERE api_key = %s", (trial_key,))
+                else:
+                    cursor.execute("DELETE FROM users WHERE api_key = ?", (trial_key,))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Discord Bot error: {e}")
+            await ctx.reply("❌ An internal error occurred while generating your trial key.")
+        finally:
+            conn.close()
+
+async def start_discord_bot():
+    try:
+        logger.info("Discord Bot: Starting client...")
+        await discord_bot.start(DISCORD_BOT_TOKEN)
+    except Exception as e:
+        logger.error(f"Discord Bot failed to run: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(check_polygon_payments())
+    if DISCORD_BOT_TOKEN:
+        asyncio.create_task(start_discord_bot())
