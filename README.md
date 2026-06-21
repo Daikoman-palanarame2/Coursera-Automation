@@ -86,5 +86,15 @@ This prints the completion percentages and next pending nodes for all courses in
 
 ---
 
+## 🔒 Licensing & Subscription Model
+
+ACCCE is a premium gated utility. To connect to the remote server and fetch the latest layout mappings, you must configure a valid token:
+
+* **Subscription Fee**: **$3.00 USD / month** (paid in **USDT** stablecoin on the **Polygon PoS** network).
+* **Automated Payments**: When your token expires, the bot will automatically pause and display exact payment instructions in your command terminal. Once you send the transaction, our backend checks the blockchain and activates your token within minutes.
+* **How to Get a Token**: Currently, tokens are issued manually. To request a new token or active trial, please contact the repository administrator or join our community server.
+
+---
+
 ## 📜 License
 This project is licensed under the MIT License.
