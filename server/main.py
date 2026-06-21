@@ -96,6 +96,10 @@ def init_db():
                 processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Auto-migrate schema changes for existing tables
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE NOT NULL;")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS device_id TEXT;")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_id TEXT;")
     else:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
