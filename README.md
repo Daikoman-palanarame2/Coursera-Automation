@@ -44,21 +44,15 @@ The bot needs a few keys to run. We made this very simple:
 
 ## 🎮 How to Run the Bot
 
-### 1. First-Time Run (Login to your Account)
-To connect your Coursera account:
-1. Run the bot with your course name:
-   ```bash
-   python main.py --course-id your-course-name
-   ```
-   *(For example, if your course URL is `https://www.coursera.org/learn/digital-marketing`, your course ID is `digital-marketing`).*
-2. A browser window will open. **Log in to your Coursera account manually** as you normally would.
-3. Once you are logged in, the bot will detect it, save your login cookies securely on your PC, and start working. You can now close the browser.
+We built a double-clickable launcher file for Windows users to make running the bot completely effortless:
 
-### 2. Normal Run (Invisible Background Mode)
-After logging in once, you can run the bot invisibly in the background so it doesn't interrupt your work:
-```bash
-python main.py --course-id your-course-name --headless
-```
+1. **Double-click the `start.bat`** file in your `Coursera-Automation` folder.
+2. The launcher will automatically perform first-time setup (creating a virtual environment, installing dependencies, and downloading the Playwright browser).
+3. When prompted, **paste your Coursera course URL** (e.g., `https://www.coursera.org/learn/digital-marketing`) directly from your browser's address bar. The bot will automatically clean the URL and extract the course name.
+4. Select **Mode [1] (visible browser)** for your first run, and complete the login manually when the browser opens.
+5. For future runs, select **Mode [2] (invisible background)** so the bot runs silently in the background while you work!
+
+*(Non-Windows users can run the bot in their terminal by typing `python main.py --course-id digital-marketing --headless`).*
 
 ---
 
