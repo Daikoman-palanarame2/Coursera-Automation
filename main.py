@@ -599,6 +599,10 @@ def main():
     
     args = parser.parse_args()
     
+    # Automatically clean course URL to extract the course ID slug
+    if "coursera.org/learn/" in args.course_id:
+        args.course_id = args.course_id.split("/learn/")[-1].split("/")[0].strip()
+    
     # Load config.json defaults if present
     config_data = {}
     if os.path.exists("config.json"):
