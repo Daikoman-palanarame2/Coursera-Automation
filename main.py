@@ -581,7 +581,45 @@ class TeeLogger:
         self.terminal.flush()
         self.log_file.flush()
 
+def patch_playwright_driver():
+    try:
+        import playwright
+        import re
+        playwright_path = playwright.__path__[0]
+        core_bundle_path = os.path.join(playwright_path, "driver", "package", "lib", "coreBundle.js")
+        if os.path.exists(core_bundle_path):
+            with open(core_bundle_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            if "location: {" in content and "pageError.location.url" in content:
+                if "location: pageError.location ?" in content:
+                    return
+                
+                pattern = r"location:\s*\{\s*url:\s*pageError\.location\.url,\s*line:\s*pageError\.location\.lineNumber,\s*column:\s*pageError\.location\.columnNumber\s*\}"
+                
+                replacement = (
+                    "location: pageError.location ? {\n"
+                    "              url: pageError.location.url,\n"
+                    "              line: pageError.location.lineNumber,\n"
+                    "              column: pageError.location.columnNumber\n"
+                    "            } : {\n"
+                    "              url: \"\",\n"
+                    "              line: 0,\n"
+                    "              column: 0\n"
+                    "            }"
+                )
+                
+                if re.search(pattern, content):
+                    print("[SETUP] Patching Playwright driver file 'coreBundle.js' to prevent pageError location crashes...")
+                    patched_content = re.sub(pattern, replacement, content)
+                    with open(core_bundle_path, "w", encoding="utf-8") as f:
+                        f.write(patched_content)
+                    print("[SETUP] Patching complete.")
+    except Exception as e:
+        print(f"[SETUP] Optional Playwright driver patch failed: {e}")
+
 def main():
+    patch_playwright_driver()
     fetch_layout_map()
     logger = TeeLogger("project_accce.log")
     sys.stdout = logger
