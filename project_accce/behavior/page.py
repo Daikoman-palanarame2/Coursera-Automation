@@ -20,8 +20,8 @@ class HumanizedPage:
         """
         Retrieves the absolute center coordinates of an element in the viewport.
         """
-        # Resolve locator and wait for visibility
-        loc = self.page.locator(selector).first
+        # Resolve locator targeting the first visible match and wait for it
+        loc = self.page.locator(selector).filter(visible=True).first
         loc.wait_for(state="visible")
         loc.scroll_into_view_if_needed()
         

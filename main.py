@@ -321,7 +321,7 @@ def process_syllabus_node(
                         print("[ENGINE] Quiz form loaded during dialog/checkbox polling. Skipping dialog handling.")
                         quiz_loaded = True
                         break
-                    if hpage.page.locator(checkbox_sel).count() > 0:
+                    if hpage.page.locator(checkbox_sel).filter(visible=True).count() > 0:
                         found_checkbox = True
                         break
                     time.sleep(1)
@@ -358,7 +358,7 @@ def process_syllabus_node(
                             print("[ENGINE] Quiz form loaded during confirmation polling. Skipping confirmation click.")
                             quiz_loaded = True
                             break
-                        if hpage.page.locator(confirm_sel).count() > 0:
+                        if hpage.page.locator(confirm_sel).filter(visible=True).count() > 0:
                             found_confirm = True
                             break
                         time.sleep(1)
