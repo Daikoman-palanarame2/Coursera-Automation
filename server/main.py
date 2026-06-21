@@ -42,6 +42,7 @@ is_postgres = False
 
 if DATABASE_URL and DATABASE_URL.startswith("postgres"):
     import psycopg2
+    import psycopg2.extras
     is_postgres = True
     logger.info("Database: Using PostgreSQL (Supabase/Render)")
 else:
@@ -58,6 +59,12 @@ def get_db():
         conn.row_factory = sqlite3.Row
         return conn
 
+def get_cursor(conn):
+    if is_postgres:
+        return conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    else:
+        return conn.cursor()
+
 def parse_iso_datetime(dt_str: str) -> datetime:
     """Helper to parse datetime strings from SQLite database."""
     # SQLite datetimes might have trailing Z or spaces
@@ -69,7 +76,7 @@ def parse_iso_datetime(dt_str: str) -> datetime:
 # Initialize tables
 def init_db():
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)
     if is_postgres:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -124,7 +131,7 @@ def get_layout_map(x_api_key: Optional[str] = Header(None)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing X-API-Key header.")
         
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)
     
     if is_postgres:
         cursor.execute("SELECT * FROM users WHERE api_key = %s", (x_api_key,))
@@ -224,7 +231,7 @@ async def check_polygon_payments():
 
 async def process_payment(tx_hash: str, amount: decimal.Decimal):
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)
     
     try:
         # Check if transaction was already processed
