@@ -13,6 +13,8 @@ chrome_sessions/
 *.png
 *.html
 *.txt
+!requirements.txt
+!**/requirements.txt
 scratch/
 
 # Python Cache & Environments
