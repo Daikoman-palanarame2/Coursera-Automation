@@ -69,6 +69,12 @@ $env:PYTHONPATH="."; python main.py --course-id <course-id> --headless --ai-mode
 * `--headless`: Run the browser in the background (no visible UI).
 * `--ai-model`: The Gemini model to use for quiz answers (defaults to `gemini-flash-latest`, recommended `gemini-3.5-flash`).
 
+### Environment Variables
+Configure the following keys in your environment (or `.env` file):
+* `COURSERA_ENGINE_TOKEN`: Your anonymous access token to connect to the licensing/layout server.
+* `COURSERA_ENGINE_BACKEND_URL`: The URL of the hosted licensing server (defaults to the production API gateway).
+* `GEMINI_API_KEY`: Your personal Gemini API key. This key is used **100% locally** for solving quizzes on your machine and is never sent to the backend server.
+
 ---
 
 ## 📊 Monitoring Progress
