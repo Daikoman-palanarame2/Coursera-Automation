@@ -35,7 +35,7 @@ def fetch_layout_map():
             print("\n" + "="*80)
             print(" [WARNING] PAYWALL ACTIVE: Free trial run limits exhausted.")
             print("="*80)
-            print(f" To unlock 50 additional automated runs, please send exactly:")
+            print(f" To unlock 1 month of unlimited automated runs, please send exactly:")
             print(f" -> \033[92m{payment.get('amount')} {payment.get('token')}\033[0m")
             print(f" on the \033[93m{payment.get('suggested_chain', '').upper()}\033[0m network to your master payment address:")
             print(f" -> \033[96m{payment.get('destination_address')}\033[0m")
