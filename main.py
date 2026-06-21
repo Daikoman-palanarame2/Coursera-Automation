@@ -3,6 +3,10 @@ import sys
 import argparse
 import time
 import json
+from dotenv import load_dotenv
+
+# Load configuration from .env file if it exists
+load_dotenv()
 from project_accce.stealth.browser import launch_stealth_browser
 from project_accce.behavior.page import HumanizedPage
 from project_accce.behavior.math_utils import poisson_sleep

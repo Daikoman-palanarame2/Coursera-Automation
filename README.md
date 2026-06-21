@@ -1,98 +1,74 @@
-# 🚀 ACCCE: Autonomous Coursera Course Completion Engine
+# 🚀 ACCCE: Automatic Coursera Autopilot Bot
 
-ACCCE is an **Autonomous Web Agent** built to automate the end-to-end traversal and completion of Coursera courses. Unlike traditional browser extensions that simply assist human users, ACCCE runs completely hands-free (headless) in the background, scraping syllabus structures, resolving quizzes via AI reasoning, simulating realistic human scrolling/telemetry, and persisting progress in a local database.
-
----
-
-## 🌟 Key Features
-
-* **🤖 Autonomous Autopilot:** Fully traverses courses (videos, readings, quizzes, surveys, and reflections) completely hands-free.
-* **💾 State & Session Persistence (Resumable):** Stores session cookies and course syllabus structures in a local **SQLite database (`project_accce.db`)**. If interrupted, it resumes exactly where it stopped.
-* **🧠 Cognitive Quiz Solving (Gemini 3.5):** Reads quiz elements from the DOM, resolves multiple-choice and open-ended writing prompts, handles API key failovers when rate-limited, and reads grading feedback to auto-correct mistakes.
-* **📹 Enhanced Video Emulation:** Automatically plays videos, fast-forwards them at 16x speed, waits for native `ended` events, and verifies completion before moving on.
-* **🔒 Stealth Integration:** Humanized click patterns, randomized sleep intervals, and stealth browser configurations to operate naturally on the platform.
+ACCCE is an automatic tool that helps you complete Coursera courses in the background. Unlike regular browser extensions that just speed up videos, ACCCE runs completely hands-free on your computer: it plays videos, reads pages, solves quizzes using smart AI (Gemini), and saves your progress so you can pause and resume at any time.
 
 ---
 
-## ⚔️ Comparison: Autopilot Agent vs. Browser Copilot
+## 🌟 What ACCCE Does For You
 
-Here is how ACCCE compares to standard browser extensions like `nerufuyo/coursera-automation`:
-
-| Feature | Browser Extension (Copilot) | ACCCE (Autopilot Agent) |
-| :--- | :--- | :--- |
-| **Execution** | Manual browsing & clicking required. | Standalone command-line automated process. |
-| **Browsing Mode** | Headful only (runs inside your browser). | Headless (runs silently in the background). |
-| **State Memory** | None (starts fresh every page reload). | SQLite database (saves exact completed syllabus nodes). |
-| **Quiz Abilities** | Basic multiple-choice assistance. | Solves text questions, self-reflections, and auto-corrects. |
-| **Telemetry** | Speeds up video (manual click required). | Full video play-and-verify loops automatically. |
+* **🤖 100% Hands-Free**: Automatically clicks through lessons, videos, and quizzes for you.
+* **🧠 Smart Quiz Solver**: Uses Google's Gemini AI to read questions, write answers, and get perfect grades.
+* **📹 Auto-Video Watcher**: Plays videos, speeds them up to finish faster, and makes sure Coursera registers them as completed.
+* **💾 Memory (Resumable)**: If you close the program or lose internet, it remembers exactly where you left off and resumes from there.
+* **🔒 Human-like Movement**: Moves and clicks naturally to look like a real person learning.
 
 ---
 
-## 🛠️ Installation & Setup (5 Minutes)
+## 🛠️ Easy Setup Guide (5 Minutes)
 
-### 1. Prerequisites
-* **Python 3.10+** installed.
-* **Playwright** dependencies installed.
+You don't need to be a developer to use this! Just follow these simple steps:
 
-### 2. Clone and Setup
+### Step 1: Install Python
+If you don't have Python installed:
+1. Download and install **Python 3.10 or newer** from the official website: [python.org/downloads](https://www.python.org/downloads/).
+2. **Important:** During installation, check the box that says **"Add Python to PATH"** before clicking Install.
+
+### Step 2: Download the Bot
+Open your terminal (Command Prompt on Windows or Terminal on Mac) and run these commands:
 ```bash
-git clone <repository-url>
-cd project_accce
+git clone https://github.com/Daikoman-palanarame2/Coursera-Automation.git
+cd Coursera-Automation
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 3. Session Setup (First-Time Login)
-To login to your Coursera account:
-1. Run the traverser in **headful mode** (without the `--headless` flag):
-   ```bash
-   $env:PYTHONPATH="."; python main.py --course-id <course-id>
-   ```
-2. A Chrome browser window will open. Complete the login manually with your Coursera credentials.
-3. Once logged in, the engine will automatically detect the active session, save the cookies to `project_accce.db`, and begin scanning the syllabus.
-4. You can now close the script and run it in **headless mode** in the future:
-   ```bash
-   $env:PYTHONPATH="."; python main.py --course-id <course-id> --headless --ai-model gemini-3.5-flash
-   ```
+### Step 3: Set Up Your Keys (.env File)
+The bot needs a few keys to run. We made this very simple:
+1. Inside the `Coursera-Automation` folder, find the file named `.env.example`.
+2. Copy it and rename the copy to just `.env` (make sure it doesn't end in `.txt`).
+3. Open the `.env` file in **Notepad** (or any text editor) and fill in your keys:
+   * **`COURSERA_ENGINE_TOKEN`**: Paste the subscription key you received from the admin.
+   * **`GEMINI_API_KEY`**: Paste your personal Gemini API key. *(This key runs locally on your machine to solve quizzes; it is never shared with us).*
 
 ---
 
-## 🎮 Command Line Interface
+## 🎮 How to Run the Bot
 
-Run the traverser engine:
+### 1. First-Time Run (Login to your Account)
+To connect your Coursera account:
+1. Run the bot with your course name:
+   ```bash
+   python main.py --course-id your-course-name
+   ```
+   *(For example, if your course URL is `https://www.coursera.org/learn/digital-marketing`, your course ID is `digital-marketing`).*
+2. A browser window will open. **Log in to your Coursera account manually** as you normally would.
+3. Once you are logged in, the bot will detect it, save your login cookies securely on your PC, and start working. You can now close the browser.
+
+### 2. Normal Run (Invisible Background Mode)
+After logging in once, you can run the bot invisibly in the background so it doesn't interrupt your work:
 ```bash
-$env:PYTHONPATH="."; python main.py --course-id <course-id> --headless --ai-model gemini-3.5-flash
+python main.py --course-id your-course-name --headless
 ```
 
-### Options
-* `--course-id`: The Coursera course slug from the URL (e.g., `accelerate-your-job-search-with-ai`).
-* `--headless`: Run the browser in the background (no visible UI).
-* `--ai-model`: The Gemini model to use for quiz answers (defaults to `gemini-flash-latest`, recommended `gemini-3.5-flash`).
-
-### Environment Variables
-Configure the following keys in your environment (or `.env` file):
-* `COURSERA_ENGINE_TOKEN`: Your anonymous access token to connect to the licensing/layout server.
-* `COURSERA_ENGINE_BACKEND_URL`: The URL of the hosted licensing server (defaults to the production API gateway).
-* `GEMINI_API_KEY`: Your personal Gemini API key. This key is used **100% locally** for solving quizzes on your machine and is never sent to the backend server.
-
 ---
 
-## 📊 Monitoring Progress
-You can query completion statistics stored in the SQLite database by running:
-```bash
-python scratch/check_progress.py
-```
-This prints the completion percentages and next pending nodes for all courses in your workspace.
+## 🔒 Subscription & Pricing
 
----
+To keep the bot updated (since Coursera changes its website design often), we use a simple subscription model:
 
-## 🔒 Licensing & Subscription Model
-
-ACCCE is a premium gated utility. To connect to the remote server and fetch the latest layout mappings, you must configure a valid token:
-
-* **Subscription Fee**: **$3.00 USD / month** (paid in **USDT** stablecoin on the **Polygon PoS** network).
-* **Automated Payments**: When your token expires, the bot will automatically pause and display exact payment instructions in your command terminal. Once you send the transaction, our backend checks the blockchain and activates your token within minutes.
-* **How to Get a Token**: Currently, tokens are issued manually. To request a new token or active trial, please contact the repository administrator or join our community server.
+* **Price**: **$3.00 USD / month** (paid in **USDT** stablecoin on the **Polygon** network).
+* **How to Pay**: When your 30-day token expires, the bot will automatically pause and display easy payment instructions in your terminal. Once you send the transaction, our server automatically detects it and reactivates your key in minutes.
+* **Get a Key**: Currently, keys are issued manually. Join our community server or contact the repository administrator to get your key or request a free trial!
 
 ---
 

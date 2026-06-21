@@ -1,5 +1,6 @@
 # Secrets & Credentials
 config.json
+.env
 
 # Databases & Logs
 *.db
