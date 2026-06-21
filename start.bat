@@ -57,17 +57,39 @@ if not exist .env goto :NO_ENV
 goto :ASK_COURSE
 
 :NO_ENV
-color 0E
-echo [WARNING] Configuration file (.env) is missing!
+color 0B
+echo =======================================================================
+echo               ACCCE: Setup Your Credentials (BYOK)
+echo =======================================================================
 echo.
-echo Please copy '.env.example' to '.env' and paste your:
-echo 1. COURSERA_ENGINE_TOKEN
-echo 2. GEMINI_API_KEY
+echo It looks like you are running ACCCE for the first time!
+echo Let's configure your '.env' credentials file.
 echo.
-echo Opening the directory so you can edit the files...
-explorer .
-pause
-exit /b
+set /p TOKEN_INPUT="Enter your ACCCE Engine Token (Trial or Paid): "
+if "%TOKEN_INPUT%"=="" (
+    echo [ERROR] ACCCE Engine Token cannot be empty!
+    pause
+    goto :NO_ENV
+)
+set /p GEMINI_INPUT="Enter your Gemini API Key: "
+if "%GEMINI_INPUT%"=="" (
+    echo [ERROR] Gemini API Key cannot be empty!
+    pause
+    goto :NO_ENV
+)
+echo.
+
+(
+echo # ACCCE Configuration Settings
+echo COURSERA_ENGINE_TOKEN=%TOKEN_INPUT%
+echo COURSERA_ENGINE_BACKEND_URL=https://coursera-licensing-service.onrender.com
+echo GEMINI_API_KEY=%GEMINI_INPUT%
+) > .env
+
+echo [SETUP] '.env' configuration file created successfully!
+echo =======================================================================
+echo.
+goto :ASK_COURSE
 
 :ASK_COURSE
 :: 4. Ask for the Course URL / ID
