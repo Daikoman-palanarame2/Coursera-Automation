@@ -77,3 +77,8 @@ You can query completion statistics stored in the SQLite database by running:
 python scratch/check_progress.py
 ```
 This prints the completion percentages and next pending nodes for all courses in your workspace.
+
+---
+
+## 📜 License
+This project is licensed under the MIT License.
