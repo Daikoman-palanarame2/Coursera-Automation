@@ -12,8 +12,11 @@ if %errorlevel% neq 0 goto :NO_PYTHON
 
 :: 2. Check if Virtual Environment exists
 if not exist .venv goto :CREATE_VENV
-echo [SETUP] Verifying dependencies...
-.venv\Scripts\pip install -r requirements.txt >nul 2>&1
+.venv\Scripts\python -c "import dotenv, requests, playwright" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [SETUP] Verifying dependencies...
+    .venv\Scripts\pip install -r requirements.txt
+)
 goto :CHECK_ENV
 
 :NO_PYTHON
