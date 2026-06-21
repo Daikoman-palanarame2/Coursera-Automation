@@ -1,0 +1,26 @@
+# Secrets & Credentials
+config.json
+
+# Databases & Logs
+*.db
+*.db-journal
+*.log
+
+# Browser Profiles & Cache
+chrome_sessions/
+
+# Debug Outputs & Screenshots
+*.png
+*.html
+*.txt
+scratch/
+
+# Python Cache & Environments
+__pycache__/
+*.pyc
+.venv/
+env/
+.pytest_cache/
+.tox/
+.eggs/
+*.egg-info/
