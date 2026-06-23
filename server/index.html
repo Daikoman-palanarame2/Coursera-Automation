@@ -463,6 +463,12 @@
                     <hr style="border: 0; border-top: 1px solid var(--border-color); position: absolute; top: 50%; left: 0; right: 0; z-index: 0; margin: 0;">
                 </div>
 
+                <!-- CEX Payout Warning -->
+                <div style="background: rgba(255, 159, 67, 0.1); border: 1px solid rgba(255, 159, 67, 0.2); border-radius: 12px; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.8rem; line-height: 1.5;">
+                    <strong style="color: var(--accent-orange); display: block; margin-bottom: 0.3rem;">⚠️ IMPORTANT FOR EXCHANGE SENDERS:</strong>
+                    If withdrawing from an exchange (e.g. Binance, Coinbase), make sure you account for transaction/withdrawal fees. Exactly <strong>3.00 USDT</strong> must arrive at the destination address. Underpaid transactions will be automatically rejected.
+                </div>
+
                 <!-- Manual Payment Panel -->
                 <div id="manual-payment-panel" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem;">
                     <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; justify-content: center;">
@@ -560,6 +566,8 @@
 
     <script>
         let countdownInterval = null;
+        let pollCount = 0;
+        const MAX_POLLS = 45; // ~5.2 minutes maximum tracking runway (45 * 7s)
 
         // ERC-20 transfer standard ABI
         const USDT_ABI = [
@@ -712,6 +720,7 @@
                 showToast("Transaction hash retrieved! Verifying payment...");
 
                 // Auto-submit claim
+                pollCount = 0;
                 await submitClaim(email, tx.hash);
                 
             } catch (err) {
@@ -734,28 +743,19 @@
                 return;
             }
             
-            const spinner = document.getElementById('spinner-claim');
-            const btnText = document.getElementById('btn-text-claim');
-            const verifyBtn = document.getElementById('btn-verify-claim');
-            
-            try {
-                verifyBtn.disabled = true;
-                spinner.style.display = 'inline-block';
-                btnText.textContent = "Verifying...";
-                
-                await submitClaim(email, txHash);
-            } catch (err) {
-                // Error handled in submitClaim
-            } finally {
-                verifyBtn.disabled = false;
-                spinner.style.display = 'none';
-                btnText.textContent = "Verify & Claim Key";
-            }
+            pollCount = 0;
+            await submitClaim(email, txHash);
         }
 
         async function submitClaim(email, txHash) {
+            const spinner = document.getElementById('spinner-claim');
+            const btnText = document.getElementById('btn-text-claim');
+            const verifyBtn = document.getElementById('btn-verify-claim');
             const responseCard = document.getElementById('card-buy');
+            
             responseCard.style.display = 'none';
+            verifyBtn.disabled = true;
+            spinner.style.display = 'inline-block';
             
             try {
                 const response = await fetch('/api/v1/web/claim-purchase', {
@@ -766,20 +766,50 @@
                 
                 const data = await response.json();
                 
+                // Handle Asynchronous Pending State (HTTP 202)
+                if (response.status === 202) {
+                    pollCount++;
+                    if (pollCount >= MAX_POLLS) {
+                        verifyBtn.disabled = false;
+                        spinner.style.display = 'none';
+                        btnText.textContent = "Verify & Claim Key";
+                        showToast("Transaction is taking longer than expected. You can safely close this page; your license will still activate once processed, or you can verify it again later.");
+                        pollCount = 0;
+                        return;
+                    }
+                    
+                    if (data.status === "NOT_MINED") {
+                        btnText.textContent = `Awaiting Block Mining... (Polling)`;
+                    } else if (data.status === "PENDING_CONFIRMATIONS") {
+                        btnText.textContent = `Confirmations: ${data.current}/5 (Polling...)`;
+                    }
+                    
+                    setTimeout(() => submitClaim(email, txHash), 7000);
+                    return;
+                }
+                
                 if (!response.ok) {
                     throw new Error(data.detail || "Verification failed");
                 }
                 
-                // Show activation card
+                // Show activation card (HTTP 200)
                 document.getElementById('buy-key-val').textContent = data.key;
                 const localExpiry = new Date(data.expires_at).toLocaleString();
                 document.getElementById('buy-expiry-val').textContent = localExpiry;
                 responseCard.style.display = 'block';
                 showToast("License key claimed successfully!");
+                
+                verifyBtn.disabled = false;
+                spinner.style.display = 'none';
+                btnText.textContent = "Verify & Claim Key";
+                pollCount = 0;
             } catch (err) {
                 showToast(err.message);
                 console.error(err);
-                throw err;
+                verifyBtn.disabled = false;
+                spinner.style.display = 'none';
+                btnText.textContent = "Verify & Claim Key";
+                pollCount = 0;
             }
         }
 

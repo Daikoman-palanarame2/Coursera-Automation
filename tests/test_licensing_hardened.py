@@ -232,8 +232,46 @@ class TestHardenedLicensing(unittest.TestCase):
             "/api/v1/web/claim-purchase",
             json={"email": "buyer@example.com", "tx_hash": tx_hash}
         )
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("confirmations. enforcing minimum depth of 5 blocks", response.json()["detail"].lower())
+        self.assertEqual(response.status_code, 202)
+        data = response.json()
+        self.assertEqual(data["status"], "PENDING_CONFIRMATIONS")
+        self.assertEqual(data["current"], 3)
+
+    @patch("httpx.AsyncClient.post", side_effect=mock_async_post)
+    def test_claim_purchase_not_yet_mined(self, mock_post_fn):
+        # Transaction receipt not found/returned from RPC
+        MOCK_CONFIG["status"] = None
+        # In mock response, we simulate empty result by making eth_getTransactionReceipt return result: null
+        # Let's override MOCK_CONFIG to trigger no receipt
+        with patch("tests.test_licensing_hardened.MOCK_CONFIG") as mock_conf:
+            mock_conf.get = lambda k, d=None: None if k in ("status", "block_number") else MOCK_CONFIG.get(k, d)
+            tx_hash = "0x" + "9" * 64
+            # Setup mock handler return None
+            async def mock_async_post_empty(url, json, **kwargs):
+                if json.get("method") == "eth_getTransactionReceipt":
+                    return mock_async_post_empty.MockResponse({"result": None})
+                return await mock_async_post(url, json, **kwargs)
+            mock_async_post_empty.MockResponse = type("MockResponse", (object,), {
+                "__init__": lambda s, d: setattr(s, "_json", d) or setattr(s, "status_code", 200),
+                "json": lambda s: s._json
+            })
+            
+            with patch("httpx.AsyncClient.post", side_effect=mock_async_post_empty):
+                response = self.client.post(
+                    "/api/v1/web/claim-purchase",
+                    json={"email": "buyer@example.com", "tx_hash": tx_hash}
+                )
+                self.assertEqual(response.status_code, 202)
+                self.assertEqual(response.json()["status"], "NOT_MINED")
+
+    def test_claim_purchase_malformed_hash(self):
+        # Invalid hash format: short hex block
+        response = self.client.post(
+            "/api/v1/web/claim-purchase",
+            json={"email": "buyer@example.com", "tx_hash": "0x123abc"}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("malformed transaction hash format", response.json()["detail"].lower())
 
     @patch("httpx.AsyncClient.post", side_effect=mock_async_post)
     def test_claim_purchase_emitter_mismatch(self, mock_post_fn):

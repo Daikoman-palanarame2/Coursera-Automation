@@ -388,7 +388,7 @@ class PurchaseClaimRequest(BaseModel):
 def hex_to_int(h: str) -> int:
     return int(h, 16)
 
-async def verify_polygon_payment(tx_hash: str) -> bool:
+async def verify_polygon_payment(tx_hash: str) -> dict:
     # Use the RPC URL defined globally
     async with httpx.AsyncClient() as client:
         # 1. Fetch Transaction Receipt
@@ -405,7 +405,7 @@ async def verify_polygon_payment(tx_hash: str) -> bool:
             raise HTTPException(status_code=502, detail=f"Failed to connect to Polygon RPC node: {e}")
             
         if not res:
-            raise HTTPException(status_code=400, detail="Transaction receipt not found or not yet mined.")
+            return {"success": False, "status": "NOT_MINED"}
             
         # Verify transaction status (1 = Success, 0 = Failure)
         status_val = res.get("status")
@@ -428,10 +428,12 @@ async def verify_polygon_payment(tx_hash: str) -> bool:
             raise HTTPException(status_code=502, detail=f"Failed to fetch current block height from RPC: {e}")
             
         if (current_block - tx_block) < 5:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Transaction found but has only {current_block - tx_block} confirmations. Enforcing minimum depth of 5 blocks."
-            )
+            return {
+                "success": False,
+                "status": "PENDING_CONFIRMATIONS",
+                "current": current_block - tx_block,
+                "required": 5
+            }
 
         # 3. Retrieve block timestamp to validate 24h window
         get_block_payload = {
@@ -484,16 +486,19 @@ async def verify_polygon_payment(tx_hash: str) -> bool:
                 detail=f"No successful USDT transfer of at least 3.00 USDT to destination wallet '{MASTER_WALLET}' was found in this transaction."
             )
             
-        return True
+        return {"success": True, "status": "SUCCESS"}
 
 @app.post("/api/v1/web/claim-purchase")
 async def claim_purchase(payload: PurchaseClaimRequest):
     email = payload.email.strip().lower()
     tx_hash = payload.tx_hash.strip().lower()
     
-    # Simple regex validation to ensure tx_hash is valid 64-char hex block
-    if not re.match(r"^0x[a-f0-9]{64}$", tx_hash):
-        raise HTTPException(status_code=400, detail="Invalid transaction hash format.")
+    # Strict regex validation to ensure tx_hash is valid 64-char hex block
+    if not re.match(r"^0x[a-fA-F0-9]{64}$", tx_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed transaction hash format. Must be a 64-character hexadecimal string starting with 0x."
+        )
         
     conn = get_db()
     cursor = get_cursor(conn)
@@ -509,7 +514,9 @@ async def claim_purchase(payload: PurchaseClaimRequest):
             raise HTTPException(status_code=403, detail="This transaction has already been claimed.")
             
         # Perform on-chain transaction checks
-        await verify_polygon_payment(tx_hash)
+        verification_result = await verify_polygon_payment(tx_hash)
+        if not verification_result.get("success", False):
+            return JSONResponse(status_code=202, content=verification_result)
         
         # Generate new active 30-day license key
         license_key = f"license-web-{uuid.uuid4().hex[:12]}"
