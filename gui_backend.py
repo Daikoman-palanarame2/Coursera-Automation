@@ -314,6 +314,33 @@ class ACCCEBackend:
             return {"lines": tail}
         except Exception as e:
             return {"lines": [f"Error reading log: {e}"]}
+            
+    def get_license_status(self) -> dict:
+        """Query the licensing server to check the saved token status."""
+        creds = self.has_credentials()
+        engine_token = creds.get("engine_token", "")
+        backend_url = creds.get("backend_url", "https://coursera-licensing-service.onrender.com")
+        
+        if not engine_token:
+            return {"success": False, "error": "No token saved."}
+            
+        try:
+            status_url = f"{backend_url.rstrip('/')}/api/v1/web/status"
+            response = requests.post(
+                status_url,
+                json={"key": engine_token},
+                timeout=10
+            )
+            if response.status_code == 200:
+                return {"success": True, "data": response.json()}
+            else:
+                try:
+                    err_detail = response.json().get("detail", "Unknown server error")
+                except Exception:
+                    err_detail = response.text
+                return {"success": False, "error": err_detail}
+        except Exception as e:
+            return {"success": False, "error": f"Network error: {e}"}
     
     def cleanup(self):
         """Called when the app is closing."""
