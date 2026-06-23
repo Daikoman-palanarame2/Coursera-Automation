@@ -66,7 +66,7 @@ def fetch_layout_map():
                 "X-API-Key": api_key,
                 "X-Device-ID": fingerprint
             },
-            timeout=15
+            timeout=60
         )
         
         # Check for Paywall / Payment Required
