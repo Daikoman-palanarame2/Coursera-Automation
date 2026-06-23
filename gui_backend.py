@@ -8,6 +8,7 @@ import threading
 import webbrowser
 import requests
 from typing import Optional, Dict, Any, List
+from project_accce.layout import get_device_fingerprint
 
 class ACCCEBackend:
     """Python-side API bridge exposed to the PyWebView frontend via js_api."""
@@ -326,9 +327,11 @@ class ACCCEBackend:
             
         try:
             status_url = f"{backend_url.rstrip('/')}/api/v1/web/status"
+            fingerprint = get_device_fingerprint()
             response = requests.post(
                 status_url,
                 json={"key": engine_token},
+                headers={"X-Device-ID": fingerprint},
                 timeout=10
             )
             if response.status_code == 200:
@@ -341,6 +344,47 @@ class ACCCEBackend:
                 return {"success": False, "error": err_detail}
         except Exception as e:
             return {"success": False, "error": f"Network error: {e}"}
+
+    def claim_trial(self, email: str) -> dict:
+        """Request a free 24-hour trial key using the local device fingerprint (HWID)."""
+        if not email or "@" not in email:
+            return {"success": False, "error": "Please enter a valid email address."}
+            
+        creds = self.has_credentials()
+        backend_url = creds.get("backend_url", "https://coursera-licensing-service.onrender.com")
+        
+        try:
+            fingerprint = get_device_fingerprint()
+            trial_url = f"{backend_url.rstrip('/')}/api/v1/web/trial"
+            response = requests.post(
+                trial_url,
+                json={"email": email.strip()},
+                headers={"X-Device-ID": fingerprint},
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                trial_key = data.get("key")
+                if not trial_key:
+                    return {"success": False, "error": "Server returned a successful status but no key was generated."}
+                
+                # Save the new trial key alongside existing credentials
+                gemini_key = creds.get("gemini_key", "")
+                webhook_url = creds.get("webhook_url", "")
+                save_res = self.save_credentials(trial_key, gemini_key, webhook_url)
+                if save_res.get("success"):
+                    return {"success": True, "key": trial_key}
+                else:
+                    return {"success": False, "error": f"Key was claimed successfully but could not be saved locally: {save_res.get('error')}"}
+            else:
+                try:
+                    err_detail = response.json().get("detail", "Unknown server error")
+                except Exception:
+                    err_detail = response.text
+                return {"success": False, "error": err_detail}
+        except Exception as e:
+            return {"success": False, "error": f"Failed to connect to licensing server: {e}"}
     
     def cleanup(self):
         """Called when the app is closing."""

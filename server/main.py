@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("licensing_server")
 
 # Trusted proxy whitelist for rate-limiting extraction security
-TRUSTED_PROXIES = {"127.0.0.1", "::1", "localhost"}
+TRUSTED_PROXIES = {"127.0.0.1", "::1", "localhost", "testserver", "testclient"}
 trusted_env = os.getenv("TRUSTED_PROXIES")
 if trusted_env:
     TRUSTED_PROXIES.update(ip.strip() for ip in trusted_env.split(","))
@@ -240,13 +240,27 @@ def read_root():
     index_path = os.path.join(base_dir, "index.html")
     if os.path.exists(index_path):
         with open(index_path, "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
+            content = f.read()
+        content = content.replace("{{MASTER_WALLET_ADDRESS}}", MASTER_WALLET)
+        return HTMLResponse(content=content)
     return HTMLResponse(content="<h1>ACCCE licensing server is operational.</h1>")
 
 @app.post("/api/v1/web/trial")
-async def claim_web_trial(payload: WebTrialRequest, request: Request):
+async def claim_web_trial(
+    payload: WebTrialRequest,
+    request: Request,
+    x_device_id: Optional[str] = Header(None)
+):
     email = payload.email.strip().lower()
     client_ip = get_client_ip(request)
+    
+    if not x_device_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing X-Device-ID header. Trial keys can only be claimed directly from the desktop application."
+        )
+        
+    device_id = x_device_id.strip().lower()
     
     conn = get_db()
     cursor = get_cursor(conn)
@@ -285,19 +299,31 @@ async def claim_web_trial(payload: WebTrialRequest, request: Request):
                 detail="This email address has already claimed a free trial."
             )
             
-        # 3. Create fresh 24-hour trial key
+        # 3. Check if this device ID has ever claimed a trial
+        if is_postgres:
+            cursor.execute("SELECT 1 FROM users WHERE is_trial = TRUE AND device_id = %s LIMIT 1", (device_id,))
+        else:
+            cursor.execute("SELECT 1 FROM users WHERE is_trial = 1 AND device_id = ? LIMIT 1", (device_id,))
+            
+        if cursor.fetchone():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This computer hardware configuration has already claimed an active free trial."
+            )
+            
+        # 4. Create fresh 24-hour trial key
         trial_key = f"trial-web-{uuid.uuid4().hex[:12]}"
         expiry_time = now + timedelta(hours=24)
         
         if is_postgres:
             cursor.execute(
-                "INSERT INTO users (api_key, expires_at, is_trial, email, ip_address, created_at) VALUES (%s, %s, TRUE, %s, %s, %s)",
-                (trial_key, expiry_time, email, client_ip, now)
+                "INSERT INTO users (api_key, expires_at, is_trial, device_id, email, ip_address, created_at) VALUES (%s, %s, TRUE, %s, %s, %s, %s)",
+                (trial_key, expiry_time, device_id, email, client_ip, now)
             )
         else:
             cursor.execute(
-                "INSERT INTO users (api_key, expires_at, is_trial, email, ip_address, created_at) VALUES (?, ?, 1, ?, ?, ?)",
-                (trial_key, expiry_time.isoformat(), email, client_ip, now.isoformat())
+                "INSERT INTO users (api_key, expires_at, is_trial, device_id, email, ip_address, created_at) VALUES (?, ?, 1, ?, ?, ?, ?)",
+                (trial_key, expiry_time.isoformat(), device_id, email, client_ip, now.isoformat())
             )
         conn.commit()
         
@@ -355,55 +381,188 @@ async def lock_trial_module(payload: LockTrialRequest):
     finally:
         conn.close()
 
-@app.post("/api/v1/web/purchase")
-async def initiate_purchase(payload: PurchaseRequest):
+class PurchaseClaimRequest(BaseModel):
+    email: EmailStr = Field(..., description="Target user email address")
+    tx_hash: str = Field(..., description="Polygon transaction hash string")
+
+def hex_to_int(h: str) -> int:
+    return int(h, 16)
+
+async def verify_polygon_payment(tx_hash: str) -> bool:
+    # Use the RPC URL defined globally
+    async with httpx.AsyncClient() as client:
+        # 1. Fetch Transaction Receipt
+        receipt_payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionReceipt",
+            "params": [tx_hash],
+            "id": 1
+        }
+        try:
+            r = await client.post(POLYGON_RPC_URL, json=receipt_payload, timeout=15)
+            res = r.json().get("result")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to connect to Polygon RPC node: {e}")
+            
+        if not res:
+            raise HTTPException(status_code=400, detail="Transaction receipt not found or not yet mined.")
+            
+        # Verify transaction status (1 = Success, 0 = Failure)
+        status_val = res.get("status")
+        if not status_val or hex_to_int(status_val) != 1:
+            raise HTTPException(status_code=400, detail="Target transaction execution failed on-chain.")
+
+        # 2. Block Confirmation Depth (Re-org mitigation)
+        tx_block = hex_to_int(res.get("blockNumber"))
+        
+        block_payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_blockNumber",
+            "params": [],
+            "id": 2
+        }
+        try:
+            br = await client.post(POLYGON_RPC_URL, json=block_payload, timeout=15)
+            current_block = hex_to_int(br.json().get("result"))
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch current block height from RPC: {e}")
+            
+        if (current_block - tx_block) < 5:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Transaction found but has only {current_block - tx_block} confirmations. Enforcing minimum depth of 5 blocks."
+            )
+
+        # 3. Retrieve block timestamp to validate 24h window
+        get_block_payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_getBlockByNumber",
+            "params": [res.get("blockNumber"), False],
+            "id": 3
+        }
+        try:
+            b_res = await client.post(POLYGON_RPC_URL, json=get_block_payload, timeout=15)
+            block_data = b_res.json().get("result")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to retrieve block details: {e}")
+            
+        if not block_data or not block_data.get("timestamp"):
+            raise HTTPException(status_code=502, detail="Block timestamp details are missing from RPC response.")
+            
+        tx_time = hex_to_int(block_data.get("timestamp")) # Unix epoch format
+        
+        import time
+        if (time.time() - tx_time) > 86400:
+            raise HTTPException(status_code=400, detail="Transaction was executed more than 24 hours ago.")
+
+        # 4. Parse Logs for strict emitter and recipient matching
+        TRANSFER_EVENT_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        valid_payment_found = False
+        
+        for log in res.get("logs", []):
+            # Check contract address (USDT contract address strictly)
+            if log.get("address", "").lower() != USDT_POLYGON_CONTRACT.lower():
+                continue
+                
+            topics = log.get("topics", [])
+            if not topics or topics[0].lower() != TRANSFER_EVENT_TOPIC:
+                continue
+                
+            if len(topics) >= 3:
+                # Strip 64-char hex block to get 40-char standard address
+                recipient = f"0x{topics[2][-40:]}".lower()
+                if recipient == MASTER_WALLET.lower():
+                    # Parse value from data field (USDT has 6 decimals)
+                    value = hex_to_int(log.get("data", "0x0"))
+                    if value >= 3000000: # 3.00 USDT
+                        valid_payment_found = True
+                        break
+                        
+        if not valid_payment_found:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No successful USDT transfer of at least 3.00 USDT to destination wallet '{MASTER_WALLET}' was found in this transaction."
+            )
+            
+        return True
+
+@app.post("/api/v1/web/claim-purchase")
+async def claim_purchase(payload: PurchaseClaimRequest):
     email = payload.email.strip().lower()
+    tx_hash = payload.tx_hash.strip().lower()
     
+    # Simple regex validation to ensure tx_hash is valid 64-char hex block
+    if not re.match(r"^0x[a-f0-9]{64}$", tx_hash):
+        raise HTTPException(status_code=400, detail="Invalid transaction hash format.")
+        
     conn = get_db()
     cursor = get_cursor(conn)
     
     try:
-        now = datetime.now(timezone.utc)
+        # Check if this tx_hash has already been registered (double-spend check)
+        if is_postgres:
+            cursor.execute("SELECT api_key FROM payments WHERE tx_hash = %s LIMIT 1", (tx_hash,))
+        else:
+            cursor.execute("SELECT api_key FROM payments WHERE tx_hash = ? LIMIT 1", (tx_hash,))
+            
+        if cursor.fetchone():
+            raise HTTPException(status_code=403, detail="This transaction has already been claimed.")
+            
+        # Perform on-chain transaction checks
+        await verify_polygon_payment(tx_hash)
         
-        # Allocate a unique salt within 60 min window
-        assigned_amount = allocate_unique_salt(cursor, is_postgres)
+        # Generate new active 30-day license key
         license_key = f"license-web-{uuid.uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=30)
         
-        expiry = now if is_postgres else now.isoformat()
-        assigned_at = now if is_postgres else now.strftime("%Y-%m-%d %H:%M:%S")
+        # Insert new user and payment records
+        expiry_val = expires_at if is_postgres else expires_at.isoformat()
+        now_val = now if is_postgres else now.isoformat()
         
         if is_postgres:
             cursor.execute(
-                "INSERT INTO users (api_key, expires_at, assigned_amount, is_trial, email, payment_assigned_at, created_at) VALUES (%s, %s, %s, FALSE, %s, %s, %s)",
-                (license_key, expiry, assigned_amount, email, assigned_at, now)
+                "INSERT INTO users (api_key, expires_at, is_trial, email, created_at) VALUES (%s, %s, FALSE, %s, %s)",
+                (license_key, expiry_val, email, now_val)
+            )
+            cursor.execute(
+                "INSERT INTO payments (tx_hash, api_key, amount, network) VALUES (%s, %s, 3.0, %s)",
+                (tx_hash, license_key, "polygon")
             )
         else:
             cursor.execute(
-                "INSERT INTO users (api_key, expires_at, assigned_amount, is_trial, email, payment_assigned_at, created_at) VALUES (?, ?, ?, 0, ?, ?, ?)",
-                (license_key, expiry, float(assigned_amount), email, assigned_at, now.isoformat())
+                "INSERT INTO users (api_key, expires_at, is_trial, email, created_at) VALUES (?, ?, 0, ?, ?)",
+                (license_key, expiry_val, email, now_val)
+            )
+            cursor.execute(
+                "INSERT INTO payments (tx_hash, api_key, amount, network) VALUES (?, ?, 3.0, ?)",
+                (tx_hash, license_key, "polygon")
             )
         conn.commit()
+        
+        logger.info(f"Purchase Claim Success! Tx {tx_hash} verified. Generated new active key {license_key} for {email}.")
         
         return {
             "success": True,
             "key": license_key,
-            "amount": float(assigned_amount),
-            "destination_address": MASTER_WALLET,
-            "chain": "polygon"
+            "expires_at": expires_at.isoformat()
         }
     finally:
         conn.close()
 
 @app.post("/api/v1/web/status")
-async def get_web_key_status(payload: StatusRequest):
+async def get_web_key_status(
+    payload: StatusRequest,
+    x_device_id: Optional[str] = Header(None)
+):
     conn = get_db()
     cursor = get_cursor(conn)
     
     try:
         if is_postgres:
-            cursor.execute("SELECT expires_at, assigned_amount, payment_assigned_at FROM users WHERE api_key = %s", (payload.key,))
+            cursor.execute("SELECT expires_at, assigned_amount, payment_assigned_at, is_trial, device_id FROM users WHERE api_key = %s", (payload.key,))
         else:
-            cursor.execute("SELECT expires_at, assigned_amount, payment_assigned_at FROM users WHERE api_key = ?", (payload.key,))
+            cursor.execute("SELECT expires_at, assigned_amount, payment_assigned_at, is_trial, device_id FROM users WHERE api_key = ?", (payload.key,))
             
         record = cursor.fetchone()
         if not record:
@@ -412,7 +571,30 @@ async def get_web_key_status(payload: StatusRequest):
         expires_at_val = record["expires_at"]
         assigned_amount_val = record["assigned_amount"]
         payment_assigned_at_val = record["payment_assigned_at"]
+        is_trial_val = record["is_trial"] if is_postgres else record[3]
+        device_id_val = record["device_id"] if is_postgres else record[4]
         
+        # Enforce device-id check on trial keys during status queries
+        if is_trial_val:
+            if not x_device_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Missing X-Device-ID header for trial key verification."
+                )
+            
+            device_id = x_device_id.strip().lower()
+            if not device_id_val:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Corrupt server state: Trial key lacks an authenticated device lock sequence."
+                )
+            
+            if device_id_val.strip().lower() != device_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Security Violation: License key signature is locked to alternative hardware parameters."
+                )
+                
         now = datetime.now(timezone.utc)
         
         if is_postgres:
@@ -485,29 +667,22 @@ def get_layout_map(
             conn.close()
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing X-Device-ID header for trial key.")
             
-        # Case A: Trial key is fresh (not locked to a device yet)
+        device_id = x_device_id.strip().lower()
+        
+        # Trial keys must always be pre-locked under the new model
         if not device_id_val:
-            # Check if this device has already claimed ANY other trial key in the database
-            if is_postgres:
-                cursor.execute("SELECT 1 FROM users WHERE is_trial = TRUE AND device_id = %s", (x_device_id,))
-            else:
-                cursor.execute("SELECT 1 FROM users WHERE is_trial = 1 AND device_id = ?", (x_device_id,))
-                
-            if cursor.fetchone():
-                conn.close()
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This device has already used a free trial.")
-                
-            # Lock this key to the current device
-            if is_postgres:
-                cursor.execute("UPDATE users SET device_id = %s WHERE api_key = %s", (x_device_id, x_api_key))
-            else:
-                cursor.execute("UPDATE users SET device_id = ? WHERE api_key = ?", (x_device_id, x_api_key))
-            conn.commit()
-            
-        # Case B: Trial key is already locked to a different device
-        elif device_id_val != x_device_id:
             conn.close()
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This trial key is locked to another device.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Corrupt server state: Trial key lacks an authenticated device lock sequence."
+            )
+            
+        if device_id_val.strip().lower() != device_id:
+            conn.close()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Security Violation: License key signature is locked to alternative hardware parameters."
+            )
 
     # Check if subscription is active
     raw_expiry = user["expires_at"] if is_postgres else user[1]
@@ -762,6 +937,5 @@ async def start_discord_bot():
 
 @app.on_event("startup")
 async def startup_event():
-    asyncio.create_task(check_polygon_payments())
     if DISCORD_BOT_TOKEN:
         asyncio.create_task(start_discord_bot())

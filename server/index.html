@@ -8,6 +8,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Ethers.js v6 Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
     <style>
         :root {
             --bg-color: #080710;
@@ -220,6 +222,13 @@
             transform: translateY(0);
         }
 
+        .btn-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
         /* Response Display Cards */
         .response-card {
             margin-top: 2rem;
@@ -424,101 +433,105 @@
     <div class="container">
         <div class="header">
             <h1>ACCCE Auto-Licensing</h1>
-            <p>Self-Service Trial & Licensing Activation Portal</p>
+            <p>Self-Service Licensing Activation Portal</p>
         </div>
 
         <div class="portal-card">
             <!-- Tabs Menu -->
             <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('trial')">🎁 Free Trial</button>
-                <button class="tab-btn" onclick="switchTab('buy')">💳 Buy License</button>
+                <button class="tab-btn active" onclick="switchTab('buy')">💳 Buy License</button>
                 <button class="tab-btn" onclick="switchTab('status')">🔍 Verify Key</button>
             </div>
 
-            <!-- Tab 1: Free Trial -->
-            <div id="tab-trial" class="tab-content active">
-                <form id="form-trial" onsubmit="handleFormSubmit(event, '/api/v1/web/trial', 'trial')">
-                    <div class="form-group">
-                        <label for="trial-email">Email Address</label>
-                        <input type="email" id="trial-email" class="form-control" placeholder="user@example.com" required>
-                    </div>
-                    <button type="submit" class="btn-submit">
-                        <span class="spinner" id="spinner-trial"></span>
-                        <span class="btn-text" id="btn-text-trial">Generate Trial Key</span>
-                    </button>
-                </form>
+            <!-- Tab: Buy License -->
+            <div id="tab-buy" class="tab-content active">
+                <div class="form-group">
+                    <label for="buy-email">Email Address</label>
+                    <input type="email" id="buy-email" class="form-control" placeholder="user@example.com" required>
+                </div>
 
-                <div class="response-card" id="card-trial">
-                    <div class="response-header">
-                        <h3>Trial Generated Successfully</h3>
-                        <span class="status-badge status-active">Active</span>
-                    </div>
-                    <div class="data-row">
-                        <div class="data-label">Your License Key</div>
-                        <div class="data-value">
-                            <span id="trial-key-val"></span>
-                            <button class="btn-copy" onclick="copyText('trial-key-val')">Copy</button>
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px;">Option 1: Web3 Direct Checkout</label>
+                    <button type="button" class="btn-submit" id="btn-web3-pay" onclick="connectAndPay()">
+                        <span class="spinner" id="spinner-web3-pay"></span>
+                        <span class="btn-text" id="btn-text-web3-pay">Connect Wallet & Pay 3.00 USDT</span>
+                    </button>
+                </div>
+
+                <div style="text-align: center; margin: 1.5rem 0; color: var(--text-secondary); font-size: 0.9rem; position: relative;">
+                    <span style="background: #11101b; padding: 0 10px; position: relative; z-index: 1;">OR PAY MANUALLY</span>
+                    <hr style="border: 0; border-top: 1px solid var(--border-color); position: absolute; top: 50%; left: 0; right: 0; z-index: 0; margin: 0;">
+                </div>
+
+                <!-- Manual Payment Panel -->
+                <div id="manual-payment-panel" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; justify-content: center;">
+                        <div style="background: #fff; padding: 0.5rem; border-radius: 12px; display: inline-block;">
+                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data={{MASTER_WALLET_ADDRESS}}" alt="QR Code" style="display: block; width: 120px; height: 120px;">
                         </div>
-                    </div>
-                    <div class="data-row">
-                        <div class="data-label">Expires At</div>
-                        <div class="data-value">
-                            <span id="trial-expires-val"></span>
+                        <div style="flex: 1; min-width: 200px;">
+                            <div style="margin-bottom: 0.8rem;">
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.2rem;">Send Amount (Fixed)</div>
+                                <div style="font-size: 1.2rem; font-weight: 700; color: var(--accent-green);">3.00 USDT</div>
+                            </div>
+                            <div style="margin-bottom: 0.8rem;">
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.2rem;">Network</div>
+                                <div style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">Polygon (POS)</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.2rem;">Destination Wallet</div>
+                                <div style="font-size: 0.8rem; font-weight: 600; word-break: break-all; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                                    <span id="manual-wallet-addr">{{MASTER_WALLET_ADDRESS}}</span>
+                                    <button class="btn-copy" onclick="copyText('manual-wallet-addr')">Copy</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Tab 2: Buy License -->
-            <div id="tab-buy" class="tab-content">
-                <form id="form-buy" onsubmit="handleFormSubmit(event, '/api/v1/web/purchase', 'buy')">
+                <!-- TxHash Claim Form -->
+                <form id="form-claim" onsubmit="handleManualClaim(event)">
                     <div class="form-group">
-                        <label for="buy-email">Email Address</label>
-                        <input type="email" id="buy-email" class="form-control" placeholder="user@example.com" required>
+                        <label for="buy-tx-hash">Transaction Hash (TxHash)</label>
+                        <input type="text" id="buy-tx-hash" class="form-control" placeholder="0x..." required>
                     </div>
-                    <button type="submit" class="btn-submit">
-                        <span class="spinner" id="spinner-buy"></span>
-                        <span class="btn-text" id="btn-text-buy">Generate License Key</span>
+                    <button type="submit" class="btn-submit" id="btn-verify-claim">
+                        <span class="spinner" id="spinner-claim"></span>
+                        <span class="btn-text" id="btn-text-claim">Verify & Claim Key</span>
                     </button>
                 </form>
 
                 <div class="response-card" id="card-buy">
                     <div class="response-header">
-                        <h3>License Activation Required</h3>
-                        <span class="status-badge status-payment">Awaiting Payment</span>
+                        <h3>License Key Activated!</h3>
+                        <span class="status-badge status-active">Active</span>
                     </div>
                     <div class="data-row">
-                        <div class="data-label">Your License Key</div>
-                        <div class="data-value">
-                            <span id="buy-key-val"></span>
+                        <div class="data-label">Premium License Key</div>
+                        <div class="data-value" style="border-color: var(--accent-green);">
+                            <span id="buy-key-val" style="color: var(--accent-green); font-weight: 700; font-family: monospace;"></span>
                             <button class="btn-copy" onclick="copyText('buy-key-val')">Copy</button>
                         </div>
                     </div>
                     <div class="data-row">
-                        <div class="data-label">USDT Payment Amount (Polygon)</div>
+                        <div class="data-label">Activation Period</div>
                         <div class="data-value">
-                            <span id="buy-amount-val" style="color: var(--accent-orange); font-size: 1.1rem; font-weight: 700;"></span>
-                            <button class="btn-copy" onclick="copyText('buy-amount-val')">Copy</button>
+                            <span>30 Days (Unlimited Runs)</span>
                         </div>
                     </div>
                     <div class="data-row">
-                        <div class="data-label">USDT Destination Wallet (Polygon)</div>
+                        <div class="data-label">Expires At</div>
                         <div class="data-value">
-                            <span id="buy-wallet-val" style="font-size: 0.8rem;"></span>
-                            <button class="btn-copy" onclick="copyText('buy-wallet-val')">Copy</button>
+                            <span id="buy-expiry-val"></span>
                         </div>
                     </div>
-                    <div class="countdown-container">
-                        <span class="countdown-label">⚠️ Balance Lock Active For:</span>
-                        <span class="countdown-clock" id="buy-timer">60:00</span>
-                    </div>
-                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 1rem; line-height: 1.4; text-align: center;">
-                        To activate, send the <strong>exact USDT amount</strong> to the address above. The backend will detect it and update your status in 1-2 minutes.
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 1rem; line-height: 1.4; text-align: center;">
+                        Copy your Premium Key above and paste it into your ACCCE Desktop Application Setup Wizard or `.env` configuration file to unlock full capabilities.
                     </p>
                 </div>
             </div>
 
-            <!-- Tab 3: Verify Key -->
+            <!-- Tab: Verify Key -->
             <div id="tab-status" class="tab-content">
                 <form id="form-status" onsubmit="handleFormSubmit(event, '/api/v1/web/status', 'status')">
                     <div class="form-group">
@@ -548,6 +561,11 @@
     <script>
         let countdownInterval = null;
 
+        // ERC-20 transfer standard ABI
+        const USDT_ABI = [
+            "function transfer(address to, uint256 value) public returns (bool)"
+        ];
+
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -557,16 +575,13 @@
             if (eventTarget) {
                 eventTarget.classList.add('active');
             } else {
-                // Failover search if triggered programmatically
                 const buttons = document.querySelectorAll('.tab-btn');
-                if (tab === 'trial') buttons[0].classList.add('active');
-                if (tab === 'buy') buttons[1].classList.add('active');
-                if (tab === 'status') buttons[2].classList.add('active');
+                if (tab === 'buy') buttons[0].classList.add('active');
+                if (tab === 'status') buttons[1].classList.add('active');
             }
             
             document.getElementById(`tab-${tab}`).classList.add('active');
             
-            // Clean active intervals if tab changes
             if (countdownInterval) {
                 clearInterval(countdownInterval);
             }
@@ -613,6 +628,161 @@
             countdownInterval = setInterval(updateClock, 1000);
         }
 
+        async function connectAndPay() {
+            const emailInput = document.getElementById('buy-email');
+            if (!emailInput.reportValidity()) {
+                return;
+            }
+            const email = emailInput.value.trim();
+
+            if (!window.ethereum) {
+                showToast("MetaMask or Web3 wallet is not installed.");
+                return;
+            }
+
+            const payBtn = document.getElementById('btn-web3-pay');
+            const payText = document.getElementById('btn-text-web3-pay');
+            const spinner = document.getElementById('spinner-web3-pay');
+
+            try {
+                payBtn.disabled = true;
+                spinner.style.display = 'inline-block';
+                payText.textContent = "Connecting...";
+
+                // Request accounts
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const signer = await provider.getSigner();
+                
+                // Check Network / Switch to Polygon Mainnet (137 / 0x89)
+                const network = await provider.getNetwork();
+                const chainId = network.chainId;
+
+                if (chainId !== 137n && chainId !== 137) {
+                    payText.textContent = "Switching Network...";
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0x89' }] // Hex of 137
+                        });
+                    } catch (switchError) {
+                        if (switchError.code === 4902) {
+                            try {
+                                await window.ethereum.request({
+                                    method: 'wallet_addEthereumChain',
+                                    params: [{
+                                        chainId: '0x89',
+                                        chainName: 'Polygon Mainnet',
+                                        rpcUrls: ['https://polygon-rpc.com'],
+                                        nativeCurrency: {
+                                            name: 'POL',
+                                            symbol: 'POL',
+                                            decimals: 18
+                                        },
+                                        blockExplorerUrls: ['https://polygonscan.com']
+                                    }]
+                                });
+                            } catch (addError) {
+                                throw new Error("Failed to add Polygon network to wallet.");
+                            }
+                        } else {
+                            throw new Error("Please switch your wallet network to Polygon Mainnet.");
+                        }
+                    }
+                }
+
+                // Re-instantiate provider and signer after possible network switch
+                const finalProvider = new ethers.BrowserProvider(window.ethereum);
+                const finalSigner = await finalProvider.getSigner();
+
+                payText.textContent = "Initiating Transfer...";
+                
+                const usdtContractAddress = "0xc2132d05d31c914a87c6611c10748aeb04b58e8f";
+                const usdtContract = new ethers.Contract(usdtContractAddress, USDT_ABI, finalSigner);
+                
+                // 3.00 USDT with 6 decimals = 3,000,000
+                const amount = 3000000n; 
+                const destination = "{{MASTER_WALLET_ADDRESS}}";
+
+                const tx = await usdtContract.transfer(destination, amount);
+                
+                payText.textContent = "Confirming...";
+                showToast("Transaction submitted! Awaiting signature/confirmation...");
+                
+                document.getElementById('buy-tx-hash').value = tx.hash;
+                showToast("Transaction hash retrieved! Verifying payment...");
+
+                // Auto-submit claim
+                await submitClaim(email, tx.hash);
+                
+            } catch (err) {
+                console.error(err);
+                showToast(err.reason || err.message || "Web3 Transaction Failed.");
+            } finally {
+                payBtn.disabled = false;
+                spinner.style.display = 'none';
+                payText.textContent = "Connect Wallet & Pay 3.00 USDT";
+            }
+        }
+
+        async function handleManualClaim(event) {
+            event.preventDefault();
+            const email = document.getElementById('buy-email').value.trim();
+            const txHash = document.getElementById('buy-tx-hash').value.trim();
+            
+            if (!email || !txHash) {
+                showToast("Please enter both email and transaction hash.");
+                return;
+            }
+            
+            const spinner = document.getElementById('spinner-claim');
+            const btnText = document.getElementById('btn-text-claim');
+            const verifyBtn = document.getElementById('btn-verify-claim');
+            
+            try {
+                verifyBtn.disabled = true;
+                spinner.style.display = 'inline-block';
+                btnText.textContent = "Verifying...";
+                
+                await submitClaim(email, txHash);
+            } catch (err) {
+                // Error handled in submitClaim
+            } finally {
+                verifyBtn.disabled = false;
+                spinner.style.display = 'none';
+                btnText.textContent = "Verify & Claim Key";
+            }
+        }
+
+        async function submitClaim(email, txHash) {
+            const responseCard = document.getElementById('card-buy');
+            responseCard.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/v1/web/claim-purchase', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email, tx_hash: txHash })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || "Verification failed");
+                }
+                
+                // Show activation card
+                document.getElementById('buy-key-val').textContent = data.key;
+                const localExpiry = new Date(data.expires_at).toLocaleString();
+                document.getElementById('buy-expiry-val').textContent = localExpiry;
+                responseCard.style.display = 'block';
+                showToast("License key claimed successfully!");
+            } catch (err) {
+                showToast(err.message);
+                console.error(err);
+                throw err;
+            }
+        }
+
         async function handleFormSubmit(event, url, tabType) {
             event.preventDefault();
             
@@ -625,11 +795,7 @@
             if (responseCard) responseCard.style.display = 'none';
 
             let payload = {};
-            if (tabType === 'trial') {
-                payload = { email: document.getElementById('trial-email').value };
-            } else if (tabType === 'buy') {
-                payload = { email: document.getElementById('buy-email').value };
-            } else if (tabType === 'status') {
+            if (tabType === 'status') {
                 payload = { key: document.getElementById('status-key').value };
             }
 
@@ -660,17 +826,7 @@
             const card = document.getElementById(`card-${tabType}`);
             card.style.display = 'block';
 
-            if (tabType === 'trial') {
-                document.getElementById('trial-key-val').textContent = data.key;
-                const localExpiry = new Date(data.expires_at).toLocaleString();
-                document.getElementById('trial-expires-val').textContent = localExpiry;
-            } else if (tabType === 'buy') {
-                document.getElementById('buy-key-val').textContent = data.key;
-                document.getElementById('buy-amount-val').textContent = `${data.amount} USDT`;
-                document.getElementById('buy-wallet-val').textContent = data.destination_address;
-                startCountdown(3600, 'buy-timer');
-            } else if (tabType === 'status') {
-                // Clear and render dynamic content for Status Card
+            if (tabType === 'status') {
                 card.innerHTML = '';
                 
                 let badgeClass = '';
@@ -714,7 +870,6 @@
                             <span class="countdown-clock" id="status-timer">60:00</span>
                         </div>
                     `;
-                    // Delay execution to let elements render in DOM
                     setTimeout(() => {
                         startCountdown(data.expires_in_seconds, 'status-timer');
                     }, 50);

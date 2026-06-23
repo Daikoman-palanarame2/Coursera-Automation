@@ -980,7 +980,17 @@
                 <div class="input-group">
                     <label>ACCCE Engine Token</label>
                     <input type="text" id="setup-engine-token" placeholder="Enter your ACCCE Engine token" autocomplete="off" spellcheck="false">
-                    <span class="input-hint">Your trial or paid license token. <a href="#" style="color:var(--accent-indigo); text-decoration:none;" onclick="openExternalLink('https://coursera-licensing-service.onrender.com/')">Don't have one? Get a key here.</a></span>
+                    <span class="input-hint">Your trial or paid license token. <a href="#" style="color:var(--accent-indigo); text-decoration:none;" onclick="openExternalLink('https://coursera-licensing-service.onrender.com/')">Buy key online</a> or <a href="#" style="color:var(--accent-indigo); text-decoration:none; font-weight:600;" onclick="toggleTrialClaim('setup')">Claim a Free Trial</a></span>
+                </div>
+
+                <!-- Setup Trial Claim Form (hidden by default) -->
+                <div id="setup-trial-claim-container" style="display:none; margin:10px 0 15px 0; padding:15px; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.1); border-radius:12px;">
+                    <div style="font-size:0.85rem; font-weight:600; margin-bottom:8px; color:var(--text-secondary);">Claim 24-Hour Free Trial</div>
+                    <div style="display:flex; gap:8px;">
+                        <input type="email" id="setup-trial-email" placeholder="Enter email address" style="flex:1; padding:8px 12px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#fff; font-size:0.9rem; outline:none;">
+                        <button class="btn btn-primary" style="padding:8px 16px; font-size:0.85rem; border-radius:8px;" id="btn-setup-claim" onclick="claimTrial('setup')">Claim</button>
+                    </div>
+                    <div id="setup-trial-status" style="font-size:0.8rem; margin-top:6px; min-height:15px;"></div>
                 </div>
 
                 <div class="input-group">
@@ -1202,7 +1212,17 @@
                         <div class="input-group">
                             <label>ACCCE Engine Token</label>
                             <input type="text" id="settings-engine-token" placeholder="Enter your ACCCE Engine token" autocomplete="off" spellcheck="false">
-                            <span class="input-hint">Your active trial or paid license key. <a href="#" style="color:var(--accent-indigo); text-decoration:none;" onclick="openExternalLink('https://coursera-licensing-service.onrender.com/')">Get a key here.</a></span>
+                            <span class="input-hint">Your active trial or paid license key. <a href="#" style="color:var(--accent-indigo); text-decoration:none;" onclick="openExternalLink('https://coursera-licensing-service.onrender.com/')">Buy key online</a> or <a href="#" style="color:var(--accent-indigo); text-decoration:none; font-weight:600;" onclick="toggleTrialClaim('settings')">Claim a Free Trial</a></span>
+                        </div>
+
+                        <!-- Settings Trial Claim Form (hidden by default) -->
+                        <div id="settings-trial-claim-container" style="display:none; margin:10px 0 15px 0; padding:15px; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.1); border-radius:12px;">
+                            <div style="font-size:0.85rem; font-weight:600; margin-bottom:8px; color:var(--text-secondary);">Claim 24-Hour Free Trial</div>
+                            <div style="display:flex; gap:8px;">
+                                <input type="email" id="settings-trial-email" placeholder="Enter email address" style="flex:1; padding:8px 12px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#fff; font-size:0.9rem; outline:none;">
+                                <button class="btn btn-primary" style="padding:8px 16px; font-size:0.85rem; border-radius:8px;" id="btn-settings-claim" onclick="claimTrial('settings')">Claim</button>
+                            </div>
+                            <div id="settings-trial-status" style="font-size:0.8rem; margin-top:6px; min-height:15px;"></div>
                         </div>
 
                         <div class="input-group">
@@ -1813,6 +1833,67 @@ function copyText(elementId) {
     }).catch(() => {
         showToast("Failed to copy.");
     });
+}
+function toggleTrialClaim(prefix) {
+    const el = document.getElementById(`${prefix}-trial-claim-container`);
+    if (el) {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        const statusEl = document.getElementById(`${prefix}-trial-status`);
+        if (statusEl) statusEl.innerHTML = '';
+    }
+}
+
+async function claimTrial(prefix) {
+    const emailEl = document.getElementById(`${prefix}-trial-email`);
+    const statusEl = document.getElementById(`${prefix}-trial-status`);
+    const btnEl = document.getElementById(`btn-${prefix}-claim`);
+    
+    if (!emailEl || !statusEl || !btnEl) return;
+    
+    const email = emailEl.value.trim();
+    if (!email || !email.includes('@')) {
+        statusEl.innerHTML = '<span style="color:var(--accent-red)">Please enter a valid email address.</span>';
+        return;
+    }
+    
+    btnEl.disabled = true;
+    const originalText = btnEl.textContent;
+    btnEl.textContent = 'Claiming...';
+    statusEl.innerHTML = '<span style="color:var(--text-secondary)">Querying licensing server...</span>';
+    
+    try {
+        const res = await pywebview.api.claim_trial(email);
+        if (res.success) {
+            statusEl.innerHTML = '<span style="color:var(--accent-jade)">Trial key claimed and saved successfully!</span>';
+            
+            // Populate BOTH token inputs
+            const tokenInputs = ['setup-engine-token', 'settings-engine-token'];
+            tokenInputs.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = res.key;
+            });
+            
+            showToast('Trial key saved successfully!');
+            
+            // If settings tab, check license status immediately to update UI
+            if (prefix === 'settings') {
+                loadLicenseStatus();
+            }
+            
+            // Reset email field and close form after short delay
+            setTimeout(() => {
+                emailEl.value = '';
+                toggleTrialClaim(prefix);
+            }, 3000);
+        } else {
+            statusEl.innerHTML = `<span style="color:var(--accent-red)">Error: ${escHtml(res.error || 'Claim rejected.')}</span>`;
+        }
+    } catch (e) {
+        statusEl.innerHTML = `<span style="color:var(--accent-red)">Failed to reach backend: ${escHtml(e.toString())}</span>`;
+    } finally {
+        btnEl.disabled = false;
+        btnEl.textContent = originalText;
+    }
 }
 </script>
 

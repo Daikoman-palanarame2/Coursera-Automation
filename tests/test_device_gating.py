@@ -27,7 +27,7 @@ def run_device_gating_test():
     try:
         # Check server online
         res = requests.get("http://127.0.0.1:8003/")
-        if res.status_code != 200 or res.json().get("status") != "online":
+        if res.status_code != 200 or "ACCCE" not in res.text:
             raise RuntimeError("Licensing server failed to boot correctly.")
         print("[TEST] Server online!")
         

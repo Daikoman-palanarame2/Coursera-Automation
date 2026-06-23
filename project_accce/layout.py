@@ -5,41 +5,114 @@ import uuid
 import hashlib
 import platform
 import subprocess
+import re
 
 layout_map = {}
+
+def is_generic_identifier(val: str) -> bool:
+    """Helper to detect virtual machine or unconfigured generic hardware IDs."""
+    v = val.strip().lower()
+    if not v:
+        return True
+    # Strip common non-alphanumeric chars
+    clean_v = "".join(c for c in v if c.isalnum())
+    if not clean_v:
+        return True
+    # Check if string is composed of only a single repeating character (e.g. all 0s, all fs)
+    if len(set(clean_v)) <= 1:
+        return True
+    # Check for common VM / OEM placeholders
+    placeholders = [
+        "oem", "o.e.m", "default string", "to be filled", "not specified",
+        "not applicable", "none", "serial", "chassis", "system"
+    ]
+    for p in placeholders:
+        if p in v:
+            return True
+    return False
 
 def get_device_fingerprint() -> str:
     """Generates a stable, unique SHA-256 hash representing the local machine's hardware ID."""
     system = platform.system()
-    hardware_identifiers = []
+    components = []
     
-    # 1. Fallback MAC Address
-    hardware_identifiers.append(str(uuid.getnode()))
-    
-    # 2. OS-Specific Hardware GUIDs
+    # 1. OS-Specific Hardware GUIDs
     try:
         if system == "Windows":
-            import winreg
-            registry = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-            key = winreg.OpenKey(registry, r"SOFTWARE\Microsoft\Cryptography")
-            machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-            hardware_identifiers.append(machine_guid)
+            # A. Native PowerShell query for Motherboard UUID (Avoids deprecated WMIC)
+            try:
+                ps_cmd = "Get-CimInstance -ClassName Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID"
+                res = subprocess.run(
+                    ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+                    capture_output=True, text=True, check=True, timeout=10
+                )
+                uuid_str = res.stdout.strip()
+                if uuid_str and not is_generic_identifier(uuid_str):
+                    components.append("win_board_uuid:" + uuid_str)
+            except Exception:
+                pass
+
+            # B. Native PowerShell query for CPU Processor ID
+            try:
+                ps_cmd = "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty ProcessorId"
+                res = subprocess.run(
+                    ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+                    capture_output=True, text=True, check=True, timeout=10
+                )
+                cpu_str = res.stdout.strip()
+                if cpu_str and not is_generic_identifier(cpu_str):
+                    components.append("win_cpu_id:" + cpu_str)
+            except Exception:
+                pass
+
+            # C. Registry Fallback via standard command
+            if not components:
+                try:
+                    import winreg
+                    registry = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+                    key = winreg.OpenKey(registry, r"SOFTWARE\Microsoft\Cryptography")
+                    machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+                    if machine_guid and not is_generic_identifier(machine_guid):
+                        components.append("win_reg_guid:" + machine_guid)
+                except Exception:
+                    pass
+
         elif system == "Darwin": # macOS
-            out = subprocess.check_output(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"]).decode()
-            for line in out.splitlines():
-                if "IOPlatformUUID" in line:
-                    hardware_identifiers.append(line.split("=")[-1].strip().strip('"'))
+            try:
+                out = subprocess.check_output(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"]).decode()
+                for line in out.splitlines():
+                    if "IOPlatformUUID" in line:
+                        uuid_str = line.split("=")[-1].strip().strip('"')
+                        if uuid_str and not is_generic_identifier(uuid_str):
+                            components.append("mac_uuid:" + uuid_str)
+                            break
+            except Exception:
+                pass
         elif system == "Linux":
             for path in ["/etc/machine-id", "/var/lib/dbus/machine-id"]:
                 if os.path.exists(path):
-                    with open(path, "r") as f:
-                        hardware_identifiers.append(f.read().strip())
+                    try:
+                        with open(path, "r") as f:
+                            val = f.read().strip()
+                            if val and not is_generic_identifier(val):
+                                components.append("linux_machine_id:" + val)
+                                break
+                    except Exception:
+                        pass
     except Exception:
         pass
         
-    # Hash everything together to create a unique fingerprint
-    fingerprint_input = "|".join(hardware_identifiers).encode('utf-8')
-    return hashlib.sha256(fingerprint_input).hexdigest()
+    # 2. Network Card MAC Address Fallback
+    try:
+        mac = str(uuid.getnode())
+        if mac and not is_generic_identifier(mac):
+            components.append("fallback_mac:" + mac)
+    except Exception:
+        pass
+        
+    # Hash everything together to create a unique fingerprint (force lower and strip)
+    raw_fingerprint = "|".join(components).lower().strip()
+    return hashlib.sha256(raw_fingerprint.encode('utf-8')).hexdigest()
 
 def fetch_layout_map():
     """
