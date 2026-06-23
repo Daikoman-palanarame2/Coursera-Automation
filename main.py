@@ -5,8 +5,15 @@ import time
 import json
 from dotenv import load_dotenv
 
-# Load configuration from .env file if it exists
-load_dotenv()
+# Determine the application root directory (where ACCCE.exe or main.py lives)
+if getattr(sys, 'frozen', False):
+    app_root = os.path.dirname(sys.executable)
+else:
+    app_root = os.path.dirname(os.path.abspath(__file__))
+
+env_path = os.path.join(app_root, ".env")
+# Load configuration from .env file explicitly from the application root
+load_dotenv(dotenv_path=env_path)
 from project_accce.stealth.browser import launch_stealth_browser
 from project_accce.behavior.page import HumanizedPage
 from project_accce.behavior.math_utils import poisson_sleep

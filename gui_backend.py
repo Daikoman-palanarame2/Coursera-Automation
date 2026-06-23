@@ -14,11 +14,19 @@ class ACCCEBackend:
     """Python-side API bridge exposed to the PyWebView frontend via js_api."""
     
     def __init__(self):
-        self._base_dir = os.path.dirname(os.path.abspath(__file__))
-        self._db_path = os.path.join(self._base_dir, "project_accce.db")
-        self._log_path = os.path.join(self._base_dir, "project_accce.log")
-        self._env_path = os.path.join(self._base_dir, ".env")
-        self._config_path = os.path.join(self._base_dir, "config.json")
+        if getattr(sys, 'frozen', False):
+            # In PyInstaller, sys._MEIPASS is the temporary directory containing resources
+            self._resources_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            self._app_root = os.path.dirname(sys.executable)
+        else:
+            self._resources_dir = os.path.dirname(os.path.abspath(__file__))
+            self._app_root = self._resources_dir
+            
+        self._base_dir = self._resources_dir
+        self._db_path = os.path.join(self._app_root, "project_accce.db")
+        self._log_path = os.path.join(self._app_root, "project_accce.log")
+        self._env_path = os.path.join(self._app_root, ".env")
+        self._config_path = os.path.join(self._app_root, "config.json")
         self._bot_process: Optional[subprocess.Popen] = None
         self._bot_thread: Optional[threading.Thread] = None
         
@@ -169,11 +177,12 @@ class ACCCEBackend:
                 }
         
         # Build command
-        python_exe = os.path.join(self._base_dir, ".venv", "Scripts", "python.exe")
+        python_exe = os.path.join(self._resources_dir, ".venv", "Scripts", "python.exe")
         if not os.path.exists(python_exe):
             python_exe = sys.executable
         
-        cmd = [python_exe, os.path.join(self._base_dir, "main.py"), "--course-id", course_id]
+        main_py_path = os.path.join(self._resources_dir, "main.py")
+        cmd = [python_exe, main_py_path, "--course-id", course_id]
         if headless:
             cmd.append("--headless")
         if module:
@@ -187,7 +196,7 @@ class ACCCEBackend:
             
             self._bot_process = subprocess.Popen(
                 cmd,
-                cwd=self._base_dir,
+                cwd=self._app_root,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
