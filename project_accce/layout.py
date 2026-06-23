@@ -97,6 +97,10 @@ def fetch_layout_map():
         layout_map.clear()
         layout_map.update(response.json().get("layout_map", {}))
         
+        # Local override to prevent generic footer Continue button conflicts on quizzes
+        if "start_quiz_button" in layout_map:
+            layout_map["start_quiz_button"] = layout_map["start_quiz_button"].replace("button:has-text('Continue'), ", "button:has-text('Continue attempt'), ")
+        
     except requests.exceptions.RequestException as e:
         print(f"\n[WARNING] NETWORK ERROR: Could not connect to licensing server: {e}")
         sys.exit(1)
