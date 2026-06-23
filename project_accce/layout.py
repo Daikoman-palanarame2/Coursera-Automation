@@ -101,6 +101,10 @@ def fetch_layout_map():
         if "start_quiz_button" in layout_map:
             layout_map["start_quiz_button"] = layout_map["start_quiz_button"].replace("button:has-text('Continue'), ", "button:has-text('Continue attempt'), ")
         
+        # Local override to prevent false positives from generic wrapper forms during quiz loading
+        if "quiz_container" in layout_map:
+            layout_map["quiz_container"] = "div[data-testid^='part-Submission_'], .rc-FormQuestion, .question-container, .rc-Option"
+        
     except requests.exceptions.RequestException as e:
         print(f"\n[WARNING] NETWORK ERROR: Could not connect to licensing server: {e}")
         sys.exit(1)
