@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACCCE Self-Service Portal</title>
+    <!-- Outfit & Inter Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #080710;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --accent-blue: #00f2fe;
+            --accent-purple: #4facfe;
+            --accent-green: #00ff87;
+            --accent-red: #ff3838;
+            --accent-orange: #ff9f43;
+            --text-primary: #ffffff;
+            --text-secondary: #a0aec0;
+            --transition-speed: 0.3s;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow-x: hidden;
+            position: relative;
+            padding: 2rem 1rem;
+        }
+
+        /* Ambient Glowing Background Orbs */
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            z-index: 0;
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        .orb-blue {
+            width: 400px;
+            height: 400px;
+            background: var(--accent-blue);
+            top: -100px;
+            left: -100px;
+        }
+
+        .orb-purple {
+            width: 500px;
+            height: 500px;
+            background: var(--accent-purple);
+            bottom: -150px;
+            right: -100px;
+        }
+
+        /* Container & Glassmorphism Card */
+        .container {
+            width: 100%;
+            max-width: 580px;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.5px;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            font-weight: 400;
+        }
+
+        .portal-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Tabs Navigation */
+        .tabs {
+            display: flex;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 14px;
+            padding: 0.3rem;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            padding: 0.8rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border-radius: 11px;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            text-align: center;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%);
+            color: var(--text-primary);
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Form Controls */
+        .form-group {
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+
+        .form-group label {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-control {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+            color: var(--text-primary);
+            font-size: 1rem;
+            transition: all var(--transition-speed);
+            outline: none;
+        }
+
+        .form-control:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px rgba(0, 242, 254, 0.15);
+        }
+
+        .btn-submit {
+            width: 100%;
+            background: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%);
+            border: none;
+            border-radius: 12px;
+            padding: 1.1rem;
+            color: var(--text-primary);
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            margin-top: 1rem;
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
+        }
+
+        .btn-submit:active {
+            transform: translateY(0);
+        }
+
+        /* Response Display Cards */
+        .response-card {
+            margin-top: 2rem;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: none;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .response-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.8rem;
+        }
+
+        .status-badge {
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .status-badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-active {
+            background: rgba(0, 255, 135, 0.1);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 135, 0.2);
+        }
+        .status-active::before { background: var(--accent-green); }
+
+        .status-payment {
+            background: rgba(255, 159, 67, 0.1);
+            color: var(--accent-orange);
+            border: 1px solid rgba(255, 159, 67, 0.2);
+        }
+        .status-payment::before { background: var(--accent-orange); }
+
+        .status-expired {
+            background: rgba(255, 56, 56, 0.1);
+            color: var(--accent-red);
+            border: 1px solid rgba(255, 56, 56, 0.2);
+        }
+        .status-expired::before { background: var(--accent-red); }
+
+        .data-row {
+            margin-bottom: 1rem;
+        }
+
+        .data-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .data-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.3rem;
+        }
+
+        .data-value {
+            font-size: 0.95rem;
+            font-weight: 600;
+            word-break: break-all;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .btn-copy {
+            background: none;
+            border: none;
+            color: var(--accent-blue);
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            transition: all var(--transition-speed);
+        }
+
+        .btn-copy:hover {
+            background: rgba(0, 242, 254, 0.1);
+        }
+
+        /* Countdown Timer Clock styling */
+        .countdown-container {
+            margin-top: 1rem;
+            background: rgba(255, 159, 67, 0.08);
+            border: 1px dashed rgba(255, 159, 67, 0.3);
+            border-radius: 10px;
+            padding: 0.8rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .countdown-label {
+            color: var(--accent-orange);
+            font-weight: 600;
+        }
+
+        .countdown-clock {
+            font-family: monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Notification Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid var(--accent-blue);
+            box-shadow: 0 10px 25px rgba(0, 242, 254, 0.2);
+            padding: 1rem 2rem;
+            border-radius: 30px;
+            color: #fff;
+            font-weight: 600;
+            font-size: 0.9rem;
+            z-index: 100;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: none;
+            opacity: 0;
+            text-align: center;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        /* Spinner */
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border-left-color: var(--text-primary);
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Footer */
+        .footer {
+            margin-top: 3rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            z-index: 1;
+        }
+
+        .footer a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="orb orb-blue"></div>
+    <div class="orb orb-purple"></div>
+
+    <div class="container">
+        <div class="header">
+            <h1>ACCCE Auto-Licensing</h1>
+            <p>Self-Service Trial & Licensing Activation Portal</p>
+        </div>
+
+        <div class="portal-card">
+            <!-- Tabs Menu -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('trial')">🎁 Free Trial</button>
+                <button class="tab-btn" onclick="switchTab('buy')">💳 Buy License</button>
+                <button class="tab-btn" onclick="switchTab('status')">🔍 Verify Key</button>
+            </div>
+
+            <!-- Tab 1: Free Trial -->
+            <div id="tab-trial" class="tab-content active">
+                <form id="form-trial" onsubmit="handleFormSubmit(event, '/api/v1/web/trial', 'trial')">
+                    <div class="form-group">
+                        <label for="trial-email">Email Address</label>
+                        <input type="email" id="trial-email" class="form-control" placeholder="user@example.com" required>
+                    </div>
+                    <button type="submit" class="btn-submit">
+                        <span class="spinner" id="spinner-trial"></span>
+                        <span class="btn-text" id="btn-text-trial">Generate Trial Key</span>
+                    </button>
+                </form>
+
+                <div class="response-card" id="card-trial">
+                    <div class="response-header">
+                        <h3>Trial Generated Successfully</h3>
+                        <span class="status-badge status-active">Active</span>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">Your License Key</div>
+                        <div class="data-value">
+                            <span id="trial-key-val"></span>
+                            <button class="btn-copy" onclick="copyText('trial-key-val')">Copy</button>
+                        </div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">Expires At</div>
+                        <div class="data-value">
+                            <span id="trial-expires-val"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Buy License -->
+            <div id="tab-buy" class="tab-content">
+                <form id="form-buy" onsubmit="handleFormSubmit(event, '/api/v1/web/purchase', 'buy')">
+                    <div class="form-group">
+                        <label for="buy-email">Email Address</label>
+                        <input type="email" id="buy-email" class="form-control" placeholder="user@example.com" required>
+                    </div>
+                    <button type="submit" class="btn-submit">
+                        <span class="spinner" id="spinner-buy"></span>
+                        <span class="btn-text" id="btn-text-buy">Generate License Key</span>
+                    </button>
+                </form>
+
+                <div class="response-card" id="card-buy">
+                    <div class="response-header">
+                        <h3>License Activation Required</h3>
+                        <span class="status-badge status-payment">Awaiting Payment</span>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">Your License Key</div>
+                        <div class="data-value">
+                            <span id="buy-key-val"></span>
+                            <button class="btn-copy" onclick="copyText('buy-key-val')">Copy</button>
+                        </div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">USDT Payment Amount (Polygon)</div>
+                        <div class="data-value">
+                            <span id="buy-amount-val" style="color: var(--accent-orange); font-size: 1.1rem; font-weight: 700;"></span>
+                            <button class="btn-copy" onclick="copyText('buy-amount-val')">Copy</button>
+                        </div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">USDT Destination Wallet (Polygon)</div>
+                        <div class="data-value">
+                            <span id="buy-wallet-val" style="font-size: 0.8rem;"></span>
+                            <button class="btn-copy" onclick="copyText('buy-wallet-val')">Copy</button>
+                        </div>
+                    </div>
+                    <div class="countdown-container">
+                        <span class="countdown-label">⚠️ Balance Lock Active For:</span>
+                        <span class="countdown-clock" id="buy-timer">60:00</span>
+                    </div>
+                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 1rem; line-height: 1.4; text-align: center;">
+                        To activate, send the <strong>exact USDT amount</strong> to the address above. The backend will detect it and update your status in 1-2 minutes.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Tab 3: Verify Key -->
+            <div id="tab-status" class="tab-content">
+                <form id="form-status" onsubmit="handleFormSubmit(event, '/api/v1/web/status', 'status')">
+                    <div class="form-group">
+                        <label for="status-key">License Key</label>
+                        <input type="text" id="status-key" class="form-control" placeholder="trial-web-xxxx or license-web-xxxx" required>
+                    </div>
+                    <button type="submit" class="btn-submit">
+                        <span class="spinner" id="spinner-status"></span>
+                        <span class="btn-text" id="btn-text-status">Check Status</span>
+                    </button>
+                </form>
+
+                <div class="response-card" id="card-status">
+                    <!-- Loaded dynamically in JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>ACCCE Bot &copy; 2026. Made with ❤️ for educational research.</p>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">Copied to clipboard!</div>
+
+    <script>
+        let countdownInterval = null;
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // Activate current tab button
+            const eventTarget = window.event ? window.event.currentTarget : null;
+            if (eventTarget) {
+                eventTarget.classList.add('active');
+            } else {
+                // Failover search if triggered programmatically
+                const buttons = document.querySelectorAll('.tab-btn');
+                if (tab === 'trial') buttons[0].classList.add('active');
+                if (tab === 'buy') buttons[1].classList.add('active');
+                if (tab === 'status') buttons[2].classList.add('active');
+            }
+            
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            
+            // Clean active intervals if tab changes
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2500);
+        }
+
+        function copyText(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                showToast("Copied to clipboard!");
+            }).catch(() => {
+                showToast("Failed to copy.");
+            });
+        }
+
+        function startCountdown(seconds, displayElementId) {
+            if (countdownInterval) clearInterval(countdownInterval);
+            
+            const display = document.getElementById(displayElementId);
+            let timeRemaining = seconds;
+
+            function updateClock() {
+                const minutes = Math.floor(timeRemaining / 60);
+                const secs = timeRemaining % 60;
+                display.textContent = `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                
+                if (timeRemaining <= 0) {
+                    clearInterval(countdownInterval);
+                    display.textContent = "Expired";
+                    showToast("Payment session has expired. Please refresh.");
+                }
+                timeRemaining--;
+            }
+
+            updateClock();
+            countdownInterval = setInterval(updateClock, 1000);
+        }
+
+        async function handleFormSubmit(event, url, tabType) {
+            event.preventDefault();
+            
+            const spinner = document.getElementById(`spinner-${tabType}`);
+            const btnText = document.getElementById(`btn-text-${tabType}`);
+            const responseCard = document.getElementById(`card-${tabType}`);
+            
+            spinner.style.display = 'inline-block';
+            btnText.style.display = 'none';
+            if (responseCard) responseCard.style.display = 'none';
+
+            let payload = {};
+            if (tabType === 'trial') {
+                payload = { email: document.getElementById('trial-email').value };
+            } else if (tabType === 'buy') {
+                payload = { email: document.getElementById('buy-email').value };
+            } else if (tabType === 'status') {
+                payload = { key: document.getElementById('status-key').value };
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || "Server error occurred");
+                }
+
+                renderResponse(data, tabType);
+            } catch (err) {
+                showToast(err.message);
+                console.error(err);
+            } finally {
+                spinner.style.display = 'none';
+                btnText.style.display = 'inline-block';
+            }
+        }
+
+        function renderResponse(data, tabType) {
+            const card = document.getElementById(`card-${tabType}`);
+            card.style.display = 'block';
+
+            if (tabType === 'trial') {
+                document.getElementById('trial-key-val').textContent = data.key;
+                const localExpiry = new Date(data.expires_at).toLocaleString();
+                document.getElementById('trial-expires-val').textContent = localExpiry;
+            } else if (tabType === 'buy') {
+                document.getElementById('buy-key-val').textContent = data.key;
+                document.getElementById('buy-amount-val').textContent = `${data.amount} USDT`;
+                document.getElementById('buy-wallet-val').textContent = data.destination_address;
+                startCountdown(3600, 'buy-timer');
+            } else if (tabType === 'status') {
+                // Clear and render dynamic content for Status Card
+                card.innerHTML = '';
+                
+                let badgeClass = '';
+                let badgeText = '';
+                let detailsHtml = '';
+
+                if (data.status === 'active') {
+                    badgeClass = 'status-active';
+                    badgeText = 'Active';
+                    const localExpiry = new Date(data.expires_at).toLocaleString();
+                    detailsHtml = `
+                        <div class="data-row">
+                            <div class="data-label">Key Status</div>
+                            <div class="data-value" style="color: var(--accent-green); font-weight: 700;">ACTIVE LICENSE</div>
+                        </div>
+                        <div class="data-row">
+                            <div class="data-label">Expiration Date</div>
+                            <div class="data-value">${localExpiry}</div>
+                        </div>
+                    `;
+                } else if (data.status === 'payment_required') {
+                    badgeClass = 'status-payment';
+                    badgeText = 'Awaiting Payment';
+                    detailsHtml = `
+                        <div class="data-row">
+                            <div class="data-label">Required Amount (Polygon USDT)</div>
+                            <div class="data-value">
+                                <span id="status-amount-val" style="color: var(--accent-orange); font-size: 1.1rem; font-weight: 700;">${data.amount} USDT</span>
+                                <button class="btn-copy" onclick="copyText('status-amount-val')">Copy</button>
+                            </div>
+                        </div>
+                        <div class="data-row">
+                            <div class="data-label">Destination Address (Polygon USDT)</div>
+                            <div class="data-value">
+                                <span id="status-wallet-val" style="font-size: 0.8rem;">${data.destination_address}</span>
+                                <button class="btn-copy" onclick="copyText('status-wallet-val')">Copy</button>
+                            </div>
+                        </div>
+                        <div class="countdown-container">
+                            <span class="countdown-label">⚠️ Balance Lock Remaining:</span>
+                            <span class="countdown-clock" id="status-timer">60:00</span>
+                        </div>
+                    `;
+                    // Delay execution to let elements render in DOM
+                    setTimeout(() => {
+                        startCountdown(data.expires_in_seconds, 'status-timer');
+                    }, 50);
+                } else {
+                    badgeClass = 'status-expired';
+                    badgeText = 'Expired';
+                    detailsHtml = `
+                        <div class="data-row">
+                            <div class="data-label">Key Status</div>
+                            <div class="data-value" style="color: var(--accent-red); font-weight: 700;">SESSION EXPIRED</div>
+                        </div>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4; text-align: center; margin-top: 1rem;">
+                            ${data.message || "Please re-purchase through the 'Buy License' tab to generate a new active payment invoice."}
+                        </p>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <div class="response-header">
+                        <h3>Verification Results</h3>
+                        <span class="status-badge ${badgeClass}">${badgeText}</span>
+                    </div>
+                    ${detailsHtml}
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

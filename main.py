@@ -386,6 +386,8 @@ def process_syllabus_node(
             try:
                 hpage.page.wait_for_selector(quiz_form_sel, timeout=15000)
                 print("[ENGINE] Quiz form loaded.")
+                print("[ENGINE] Waiting 3 seconds for React questions and option inputs to stabilize...")
+                time.sleep(3)
             except Exception:
                 print("[ENGINE] Warning: Quiz form not detected.")
                 

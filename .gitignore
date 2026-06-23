@@ -16,6 +16,7 @@ chrome_sessions/
 *.txt
 !requirements.txt
 !**/requirements.txt
+!server/index.html
 scratch/
 
 # Python Cache & Environments

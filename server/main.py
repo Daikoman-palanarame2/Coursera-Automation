@@ -1,17 +1,50 @@
 import os
-import random
+import uuid
+import secrets
 import decimal
 import logging
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
-from fastapi import FastAPI, Header, HTTPException, status
-from fastapi.responses import JSONResponse
+from typing import Dict, Optional, List
+from fastapi import FastAPI, Header, HTTPException, status, Request
+from fastapi.responses import JSONResponse, HTMLResponse
+from pydantic import BaseModel, Field, EmailStr
 import httpx
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("licensing_server")
+
+# Trusted proxy whitelist for rate-limiting extraction security
+TRUSTED_PROXIES = {"127.0.0.1", "::1", "localhost"}
+trusted_env = os.getenv("TRUSTED_PROXIES")
+if trusted_env:
+    TRUSTED_PROXIES.update(ip.strip() for ip in trusted_env.split(","))
+
+class WebTrialRequest(BaseModel):
+    email: EmailStr = Field(..., description="Validated user email address")
+
+class PurchaseRequest(BaseModel):
+    email: EmailStr
+
+class StatusRequest(BaseModel):
+    key: str = Field(..., description="Target licensing API key")
+
+def get_client_ip(request: Request) -> str:
+    remote_host = request.client.host if request.client else "127.0.0.1"
+    if remote_host not in TRUSTED_PROXIES:
+        return remote_host
+
+    for header in ["cf-connecting-ip", "x-real-ip"]:
+        val = request.headers.get(header)
+        if val:
+            return val.strip()
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return remote_host
+
 
 app = FastAPI(title="ACCCE Gated Map Server", version="1.0.0")
 
@@ -126,14 +159,237 @@ def init_db():
         cursor.execute("""
             INSERT OR IGNORE INTO users (api_key, expires_at) VALUES ('test-demo-key-12345', ?);
         """, (init_expiry,))
+
+    # Safe Try-Except Migrations
+    migrations = [
+        ("email", "TEXT"),
+        ("ip_address", "TEXT"),
+        ("payment_assigned_at", "TIMESTAMP WITH TIME ZONE" if is_postgres else "TEXT")
+    ]
+    for col, col_type in migrations:
+        try:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+        except Exception as e:
+            logger.debug(f"Column {col} change skipped: {e}")
+
     conn.commit()
     conn.close()
 
 init_db()
 
-@app.get("/")
+def allocate_unique_salt(cursor, is_postgres: bool, window_minutes: int = 60) -> decimal.Decimal:
+    base_price = decimal.Decimal("3.0000")
+    now_utc = datetime.now(timezone.utc)
+    expiration_cutoff = now_utc - timedelta(minutes=window_minutes)
+    
+    pg_cutoff = expiration_cutoff
+    sqlite_cutoff = expiration_cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+    for _ in range(500):
+        salt = secrets.randbelow(9999) + 1
+        assigned_amount = base_price + (decimal.Decimal(salt) / decimal.Decimal("10000"))
+        
+        if is_postgres:
+            query = """
+                SELECT 1 FROM users 
+                WHERE assigned_amount = %s 
+                  AND assigned_amount > 0.0 
+                  AND payment_assigned_at > %s 
+                LIMIT 1
+            """
+            cursor.execute(query, (assigned_amount, pg_cutoff))
+        else:
+            query = """
+                SELECT 1 FROM users 
+                WHERE assigned_amount = ? 
+                  AND assigned_amount > 0.0 
+                  AND payment_assigned_at > ? 
+                LIMIT 1
+            """
+            cursor.execute(query, (float(assigned_amount), sqlite_cutoff))
+            
+        if not cursor.fetchone():
+            return assigned_amount
+            
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="All temporary payment parameters are currently reserved. Please retry shortly."
+    )
+
+
+@app.get("/", response_class=HTMLResponse)
 def read_root():
-    return {"status": "online", "message": "ACCCE licensing server is operational."}
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    index_path = os.path.join(base_dir, "index.html")
+    if os.path.exists(index_path):
+        with open(index_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h1>ACCCE licensing server is operational.</h1>")
+
+@app.post("/api/v1/web/trial")
+async def claim_web_trial(payload: WebTrialRequest, request: Request):
+    email = payload.email.strip().lower()
+    client_ip = get_client_ip(request)
+    
+    conn = get_db()
+    cursor = get_cursor(conn)
+    
+    try:
+        now = datetime.now(timezone.utc)
+        cutoff_24h = now - timedelta(hours=24)
+        
+        # 1. Check IP rate-limiting in the last 24h
+        if is_postgres:
+            cursor.execute(
+                "SELECT 1 FROM users WHERE ip_address = %s AND is_trial = TRUE AND created_at > %s LIMIT 1",
+                (client_ip, cutoff_24h)
+            )
+        else:
+            cursor.execute(
+                "SELECT 1 FROM users WHERE ip_address = ? AND is_trial = 1 AND created_at > ? LIMIT 1",
+                (client_ip, cutoff_24h.isoformat())
+            )
+            
+        if cursor.fetchone():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This IP address has already generated a free trial in the last 24 hours."
+            )
+            
+        # 2. Check if email has ever claimed a trial
+        if is_postgres:
+            cursor.execute("SELECT 1 FROM users WHERE email = %s AND is_trial = TRUE LIMIT 1", (email,))
+        else:
+            cursor.execute("SELECT 1 FROM users WHERE email = ? AND is_trial = 1 LIMIT 1", (email,))
+            
+        if cursor.fetchone():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email address has already claimed a free trial."
+            )
+            
+        # 3. Create fresh 3-hour trial key
+        trial_key = f"trial-web-{uuid.uuid4().hex[:12]}"
+        expiry_time = now + timedelta(hours=3)
+        
+        if is_postgres:
+            cursor.execute(
+                "INSERT INTO users (api_key, expires_at, is_trial, email, ip_address, created_at) VALUES (%s, %s, TRUE, %s, %s, %s)",
+                (trial_key, expiry_time, email, client_ip, now)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO users (api_key, expires_at, is_trial, email, ip_address, created_at) VALUES (?, ?, 1, ?, ?, ?)",
+                (trial_key, expiry_time.isoformat(), email, client_ip, now.isoformat())
+            )
+        conn.commit()
+        
+        return {
+            "success": True,
+            "key": trial_key,
+            "expires_at": expiry_time.isoformat()
+        }
+    finally:
+        conn.close()
+
+@app.post("/api/v1/web/purchase")
+async def initiate_purchase(payload: PurchaseRequest):
+    email = payload.email.strip().lower()
+    
+    conn = get_db()
+    cursor = get_cursor(conn)
+    
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Allocate a unique salt within 60 min window
+        assigned_amount = allocate_unique_salt(cursor, is_postgres)
+        license_key = f"license-web-{uuid.uuid4().hex[:12]}"
+        
+        expiry = now if is_postgres else now.isoformat()
+        assigned_at = now if is_postgres else now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        if is_postgres:
+            cursor.execute(
+                "INSERT INTO users (api_key, expires_at, assigned_amount, is_trial, email, payment_assigned_at, created_at) VALUES (%s, %s, %s, FALSE, %s, %s, %s)",
+                (license_key, expiry, assigned_amount, email, assigned_at, now)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO users (api_key, expires_at, assigned_amount, is_trial, email, payment_assigned_at, created_at) VALUES (?, ?, ?, 0, ?, ?, ?)",
+                (license_key, expiry, float(assigned_amount), email, assigned_at, now.isoformat())
+            )
+        conn.commit()
+        
+        return {
+            "success": True,
+            "key": license_key,
+            "amount": float(assigned_amount),
+            "destination_address": MASTER_WALLET,
+            "chain": "polygon"
+        }
+    finally:
+        conn.close()
+
+@app.post("/api/v1/web/status")
+async def get_web_key_status(payload: StatusRequest):
+    conn = get_db()
+    cursor = get_cursor(conn)
+    
+    try:
+        if is_postgres:
+            cursor.execute("SELECT expires_at, assigned_amount, payment_assigned_at FROM users WHERE api_key = %s", (payload.key,))
+        else:
+            cursor.execute("SELECT expires_at, assigned_amount, payment_assigned_at FROM users WHERE api_key = ?", (payload.key,))
+            
+        record = cursor.fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Licensing key not found.")
+            
+        expires_at_val = record["expires_at"]
+        assigned_amount_val = record["assigned_amount"]
+        payment_assigned_at_val = record["payment_assigned_at"]
+        
+        now = datetime.now(timezone.utc)
+        
+        if is_postgres:
+            expires_at = expires_at_val
+        else:
+            expires_at = parse_iso_datetime(expires_at_val)
+            
+        if expires_at > now:
+            return {
+                "success": True,
+                "status": "active",
+                "expires_at": expires_at.isoformat()
+            }
+            
+        # If expired, check if they have a pending salt that is still within the 60-min window
+        if float(assigned_amount_val) > 0.0 and payment_assigned_at_val:
+            if is_postgres:
+                assigned_at = payment_assigned_at_val
+            else:
+                assigned_at = parse_iso_datetime(payment_assigned_at_val)
+                
+            elapsed = now - assigned_at
+            if elapsed < timedelta(minutes=60):
+                remaining_seconds = max(0, int(3600 - elapsed.total_seconds()))
+                return {
+                    "success": True,
+                    "status": "payment_required",
+                    "amount": float(assigned_amount_val),
+                    "destination_address": MASTER_WALLET,
+                    "chain": "polygon",
+                    "expires_in_seconds": remaining_seconds
+                }
+                
+        return {
+            "success": True,
+            "status": "expired",
+            "message": "Payment session expired. Please re-purchase or refresh through the Buy License tab to generate a new active invoice."
+        }
+    finally:
+        conn.close()
 
 @app.get("/api/v1/layout-map")
 def get_layout_map(
@@ -209,16 +465,36 @@ def get_layout_map(
             "layout_map": COURSERA_LAYOUT_MAP
         }
         
-    # If expired, generate a random unique payment salt for $3 USD (e.g. 3.0001 to 3.0999 USDT)
-    assigned_amount = user["assigned_amount"] if is_postgres else user[2]
+    # If expired, generate a unique payment salt for $3 USD with 60 minutes TTL
+    assigned_amount = user["assigned_amount"]
+    payment_assigned_at_val = user["payment_assigned_at"]
+    
+    needs_new_salt = False
     if float(assigned_amount) <= 0.0:
-        # Generate random unique cents salt
-        salt = random.randint(1, 9999)
-        assigned_amount = decimal.Decimal("3.0000") + decimal.Decimal(salt) / decimal.Decimal("10000")
+        needs_new_salt = True
+    elif payment_assigned_at_val:
         if is_postgres:
-            cursor.execute("UPDATE users SET assigned_amount = %s WHERE api_key = %s", (assigned_amount, x_api_key))
+            assigned_at = payment_assigned_at_val
         else:
-            cursor.execute("UPDATE users SET assigned_amount = ? WHERE api_key = ?", (float(assigned_amount), x_api_key))
+            assigned_at = parse_iso_datetime(payment_assigned_at_val)
+        if datetime.now(timezone.utc) - assigned_at > timedelta(minutes=60):
+            needs_new_salt = True
+    else:
+        needs_new_salt = True
+
+    if needs_new_salt:
+        assigned_amount = allocate_unique_salt(cursor, is_postgres)
+        now_val = datetime.now(timezone.utc)
+        if is_postgres:
+            cursor.execute(
+                "UPDATE users SET assigned_amount = %s, payment_assigned_at = %s WHERE api_key = %s",
+                (assigned_amount, now_val, x_api_key)
+            )
+        else:
+            cursor.execute(
+                "UPDATE users SET assigned_amount = ?, payment_assigned_at = ? WHERE api_key = ?",
+                (float(assigned_amount), now_val.strftime("%Y-%m-%d %H:%M:%S"), x_api_key)
+            )
         conn.commit()
         
     conn.close()
@@ -289,12 +565,21 @@ async def process_payment(tx_hash: str, amount: decimal.Decimal):
         if cursor.fetchone():
             return
             
-        # Find user with matching assigned amount
+        # Find user with matching assigned amount and active lock window (60 minutes)
+        expiration_cutoff = datetime.now(timezone.utc) - timedelta(minutes=60)
         amount_float = float(amount)
         if is_postgres:
-            cursor.execute("SELECT api_key, expires_at FROM users WHERE assigned_amount = %s", (amount,))
+            cursor.execute("""
+                SELECT api_key, expires_at FROM users 
+                WHERE assigned_amount = %s 
+                  AND payment_assigned_at > %s
+            """, (amount, expiration_cutoff))
         else:
-            cursor.execute("SELECT api_key, expires_at FROM users WHERE assigned_amount = ?", (amount_float,))
+            cursor.execute("""
+                SELECT api_key, expires_at FROM users 
+                WHERE assigned_amount = ? 
+                  AND payment_assigned_at > ?
+            """, (amount_float, expiration_cutoff.strftime("%Y-%m-%d %H:%M:%S")))
             
         matched_user = cursor.fetchone()
         if matched_user:

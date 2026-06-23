@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS users (
     is_trial BOOLEAN DEFAULT FALSE NOT NULL,
     device_id TEXT,
     discord_id TEXT,
+    email TEXT,
+    ip_address TEXT,
+    payment_assigned_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -22,3 +25,4 @@ CREATE TABLE IF NOT EXISTS payments (
 INSERT INTO users (api_key, expires_at)
 VALUES ('test-demo-key-12345', CURRENT_TIMESTAMP + INTERVAL '10 minutes')
 ON CONFLICT (api_key) DO NOTHING;
+
