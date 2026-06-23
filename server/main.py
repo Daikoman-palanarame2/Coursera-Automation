@@ -31,6 +31,11 @@ class PurchaseRequest(BaseModel):
 class StatusRequest(BaseModel):
     key: str = Field(..., description="Target licensing API key")
 
+class LockTrialRequest(BaseModel):
+    key: str = Field(..., description="Target licensing API key")
+    course_id: str = Field(..., description="Target course ID string")
+    module_index: int = Field(..., description="1-based module index")
+
 def get_client_ip(request: Request) -> str:
     remote_host = request.client.host if request.client else "127.0.0.1"
     if remote_host not in TRUSTED_PROXIES:
@@ -119,6 +124,11 @@ def init_db():
                 is_trial BOOLEAN DEFAULT FALSE NOT NULL,
                 device_id TEXT,
                 discord_id TEXT,
+                email TEXT,
+                ip_address TEXT,
+                payment_assigned_at TIMESTAMP WITH TIME ZONE,
+                trial_locked_course_id TEXT DEFAULT NULL,
+                trial_locked_module_index INTEGER DEFAULT NULL,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS payments (
@@ -142,6 +152,11 @@ def init_db():
                 is_trial INTEGER DEFAULT 0 NOT NULL,
                 device_id TEXT,
                 discord_id TEXT,
+                email TEXT,
+                ip_address TEXT,
+                payment_assigned_at TEXT,
+                trial_locked_course_id TEXT DEFAULT NULL,
+                trial_locked_module_index INTEGER DEFAULT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -164,7 +179,9 @@ def init_db():
     migrations = [
         ("email", "TEXT"),
         ("ip_address", "TEXT"),
-        ("payment_assigned_at", "TIMESTAMP WITH TIME ZONE" if is_postgres else "TEXT")
+        ("payment_assigned_at", "TIMESTAMP WITH TIME ZONE" if is_postgres else "TEXT"),
+        ("trial_locked_course_id", "TEXT"),
+        ("trial_locked_module_index", "INTEGER")
     ]
     for col, col_type in migrations:
         try:
@@ -268,9 +285,9 @@ async def claim_web_trial(payload: WebTrialRequest, request: Request):
                 detail="This email address has already claimed a free trial."
             )
             
-        # 3. Create fresh 3-hour trial key
+        # 3. Create fresh 24-hour trial key
         trial_key = f"trial-web-{uuid.uuid4().hex[:12]}"
-        expiry_time = now + timedelta(hours=3)
+        expiry_time = now + timedelta(hours=24)
         
         if is_postgres:
             cursor.execute(
@@ -289,6 +306,52 @@ async def claim_web_trial(payload: WebTrialRequest, request: Request):
             "key": trial_key,
             "expires_at": expiry_time.isoformat()
         }
+    finally:
+        conn.close()
+
+@app.post("/api/v1/web/trial/lock")
+async def lock_trial_module(payload: LockTrialRequest):
+    conn = get_db()
+    cursor = get_cursor(conn)
+    try:
+        if is_postgres:
+            cursor.execute("SELECT is_trial, trial_locked_course_id, trial_locked_module_index FROM users WHERE api_key = %s", (payload.key,))
+        else:
+            cursor.execute("SELECT is_trial, trial_locked_course_id, trial_locked_module_index FROM users WHERE api_key = ?", (payload.key,))
+            
+        record = cursor.fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Trial key not found.")
+            
+        is_trial_val = record[0]
+        locked_course = record[1]
+        locked_module = record[2]
+        
+        if not is_trial_val:
+            # Full license keys are not restricted
+            return {"success": True, "message": "Full license key. No lock required."}
+            
+        if locked_course is not None:
+            if locked_course != payload.course_id or locked_module != payload.module_index:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"This trial key is already locked to Course '{locked_course}', Module {locked_module}."
+                )
+            return {"success": True, "message": "Valid matching trial allocation."}
+            
+        # First time running: permanently lock key to this course and module
+        if is_postgres:
+            cursor.execute(
+                "UPDATE users SET trial_locked_course_id = %s, trial_locked_module_index = %s WHERE api_key = %s",
+                (payload.course_id, payload.module_index, payload.key)
+            )
+        else:
+            cursor.execute(
+                "UPDATE users SET trial_locked_course_id = ?, trial_locked_module_index = ? WHERE api_key = ?",
+                (payload.course_id, payload.module_index, payload.key)
+            )
+        conn.commit()
+        return {"success": True, "message": "Trial key successfully locked to this module."}
     finally:
         conn.close()
 
@@ -650,9 +713,9 @@ if DISCORD_BOT_TOKEN:
                 await ctx.reply("❌ You have already claimed your free trial!")
                 return
                 
-            # Generate a new unique 3-hour trial key
+            # Generate a new unique 24-hour trial key
             trial_key = f"trial-{uuid.uuid4().hex[:12]}"
-            expiry_time = datetime.now(timezone.utc) + timedelta(hours=3)
+            expiry_time = datetime.now(timezone.utc) + timedelta(hours=24)
             
             if is_postgres:
                 cursor.execute(
@@ -668,14 +731,14 @@ if DISCORD_BOT_TOKEN:
             
             try:
                 dm_message = (
-                    f"🎉 **Your ACCCE 3-Hour Free Trial Key has been generated!**\n\n"
+                    f"🎉 **Your ACCCE 24-Hour Free Trial Key has been generated!**\n\n"
                     f"🔑 **Token**: `{trial_key}`\n"
-                    f"⏰ **Expires in**: 3 Hours\n\n"
+                    f"⏰ **Expires in**: 24 Hours\n\n"
                     f"To use the bot, set this key as your `COURSERA_ENGINE_TOKEN` in your `.env` file.\n"
                     f"Once your trial expires, the bot will display instructions to extend it for 1 month for $3 USD."
                 )
                 await ctx.author.send(dm_message)
-                await ctx.reply("✅ I have sent your 3-hour free trial key to your Direct Messages (DMs)!")
+                await ctx.reply("✅ I have sent your 24-hour free trial key to your Direct Messages (DMs)!")
             except discord.Forbidden:
                 await ctx.reply("❌ I could not DM you the key. Please temporarily enable 'Allow Direct Messages from Server Members' in your Discord settings, and try again!")
                 # Delete key

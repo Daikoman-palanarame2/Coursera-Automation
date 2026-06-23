@@ -1,0 +1,1465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACCCE — Coursera Automation Engine</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        /* ═══════════════════════════════════════════════════════════
+           DESIGN SYSTEM
+           ═══════════════════════════════════════════════════════════ */
+        :root {
+            --bg-primary: #06080f;
+            --bg-secondary: #0b0f19;
+            --bg-card: rgba(15, 20, 35, 0.7);
+            --bg-card-hover: rgba(20, 28, 50, 0.8);
+            --bg-input: rgba(15, 20, 40, 0.9);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-input: rgba(255, 255, 255, 0.1);
+            --border-input-focus: rgba(59, 130, 246, 0.5);
+            --text-primary: #f1f5f9;
+            --text-secondary: #8b9cc0;
+            --text-muted: #4b5c82;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --gradient-accent: linear-gradient(135deg, #3b82f6, #06b6d4);
+            --gradient-accent-hover: linear-gradient(135deg, #2563eb, #0891b2);
+            --gradient-card: linear-gradient(135deg, rgba(59, 130, 246, 0.04), rgba(6, 182, 212, 0.04));
+            --shadow-glow: 0 0 40px rgba(59, 130, 246, 0.08);
+            --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 20px;
+            --transition-fast: 0.15s ease;
+            --transition-med: 0.3s ease;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image:
+                radial-gradient(ellipse at 15% 10%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 85% 90%, rgba(6, 182, 212, 0.04) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(59, 130, 246, 0.02) 0%, transparent 70%);
+        }
+
+        /* ═══ SHARED COMPONENTS ═══ */
+
+        .view { display: none; flex-direction: column; min-height: 100vh; }
+        .view.active { display: flex; }
+
+        .container {
+            max-width: 960px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 32px;
+        }
+
+        .logo {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 900;
+            font-size: 28px;
+            letter-spacing: -0.03em;
+            background: var(--gradient-accent);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo-small {
+            font-size: 20px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 28px;
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow-card);
+            transition: border-color var(--transition-med);
+        }
+
+        .card:hover {
+            border-color: rgba(59, 130, 246, 0.12);
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .input-group input, .input-group select {
+            background: var(--bg-input);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            transition: all var(--transition-fast);
+            outline: none;
+        }
+
+        .input-group input:focus, .input-group select:focus {
+            border-color: var(--border-input-focus);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .input-group input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .input-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 14px 32px;
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all var(--transition-med);
+            letter-spacing: 0.01em;
+        }
+
+        .btn-primary {
+            background: var(--gradient-accent);
+            color: white;
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.25);
+        }
+
+        .btn-primary:hover {
+            background: var(--gradient-accent-hover);
+            box-shadow: 0 6px 28px rgba(59, 130, 246, 0.35);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0px);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            box-shadow: 0 4px 20px rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 6px 28px rgba(239, 68, 68, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .btn-ghost {
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-ghost:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border-subtle);
+            margin: 24px 0;
+        }
+
+        /* ═══ ANIMATED BACKGROUND ORBS ═══ */
+        .bg-orb {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.4;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .bg-orb-1 { width: 300px; height: 300px; background: rgba(59, 130, 246, 0.08); top: -50px; left: -50px; animation: float 20s ease-in-out infinite; }
+        .bg-orb-2 { width: 250px; height: 250px; background: rgba(6, 182, 212, 0.06); bottom: -30px; right: -30px; animation: float 25s ease-in-out infinite reverse; }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0); }
+            33% { transform: translate(30px, -20px); }
+            66% { transform: translate(-20px, 30px); }
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           VIEW 1: SETUP WIZARD
+           ═══════════════════════════════════════════════════════════ */
+
+        #view-setup {
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+        }
+
+        .setup-wrapper {
+            max-width: 480px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+
+        .setup-header {
+            text-align: center;
+            margin-bottom: 36px;
+        }
+
+        .setup-header .logo {
+            font-size: 36px;
+            margin-bottom: 12px;
+        }
+
+        .setup-header .subtitle {
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .setup-step-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 28px;
+        }
+
+        .step-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: all var(--transition-med);
+        }
+
+        .step-dot.active {
+            background: var(--accent-blue);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+            width: 24px;
+            border-radius: 4px;
+        }
+
+        .setup-card .card {
+            padding: 32px;
+        }
+
+        .trust-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 18px;
+            background: rgba(16, 185, 129, 0.06);
+            border: 1px solid rgba(16, 185, 129, 0.15);
+            border-radius: var(--radius-sm);
+            margin-bottom: 24px;
+        }
+
+        .trust-badge .icon { font-size: 18px; }
+        .trust-badge .text {
+            font-size: 13px;
+            color: #6ee7b7;
+            line-height: 1.4;
+        }
+
+        #setup-error {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #fca5a5;
+            display: none;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           VIEW 2: LAUNCH SCREEN
+           ═══════════════════════════════════════════════════════════ */
+
+        #view-launch {
+            padding: 40px 20px;
+        }
+
+        .launch-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+        }
+
+        .launch-header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .launch-header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .settings-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            font-size: 18px;
+        }
+
+        .settings-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .launch-hero {
+            text-align: center;
+            padding: 60px 0 50px;
+        }
+
+        .launch-hero h1 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 32px;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        .launch-hero p {
+            color: var(--text-secondary);
+            font-size: 15px;
+            max-width: 480px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        .launch-form {
+            max-width: 560px;
+            margin: 0 auto;
+        }
+
+        .launch-options {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .launch-options .input-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .toggle-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background var(--transition-fast);
+        }
+
+        .toggle.active {
+            background: var(--accent-blue);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            background: white;
+            border-radius: 50%;
+            transition: transform var(--transition-fast);
+        }
+
+        .toggle.active::after {
+            transform: translateX(20px);
+        }
+
+        .toggle-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .start-btn-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-top: 32px;
+        }
+
+        .start-btn-wrapper .btn {
+            padding: 16px 56px;
+            font-size: 17px;
+            border-radius: var(--radius-lg);
+        }
+
+        #launch-error {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #fca5a5;
+            display: none;
+            text-align: center;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           VIEW 3: DASHBOARD
+           ═══════════════════════════════════════════════════════════ */
+
+        #view-dashboard {
+            padding: 24px 20px;
+        }
+
+        .dash-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .dash-header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-badge {
+            font-family: 'Outfit', sans-serif;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 5px 14px;
+            border-radius: 20px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge-running {
+            background: rgba(16, 185, 129, 0.12);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .badge-idle {
+            background: rgba(245, 158, 11, 0.12);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .badge-error {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .badge-complete {
+            background: rgba(16, 185, 129, 0.12);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .pulse-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 1.8s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+        }
+
+        .dash-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            backdrop-filter: blur(12px);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        .stat-value.accent { background: var(--gradient-accent); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+        .progress-section {
+            margin-bottom: 24px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .progress-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .progress-pct {
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .progress-bar-track {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--gradient-accent);
+            border-radius: 4px;
+            transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+        }
+
+        .progress-bar-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .dash-body {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .syllabus-panel, .log-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            max-height: 360px;
+        }
+
+        .panel-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-body {
+            overflow-y: auto;
+            flex: 1;
+            padding: 4px 0;
+        }
+
+        .panel-body::-webkit-scrollbar { width: 4px; }
+        .panel-body::-webkit-scrollbar-track { background: transparent; }
+        .panel-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+        .syllabus-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            transition: background var(--transition-fast);
+        }
+
+        .syllabus-item:hover { background: rgba(255,255,255,0.02); }
+
+        .syllabus-item.completed { color: var(--accent-green); }
+        .syllabus-item.active { color: var(--accent-blue); background: rgba(59, 130, 246, 0.06); }
+
+        .syllabus-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 10px;
+        }
+
+        .syllabus-item.completed .syllabus-icon {
+            background: var(--accent-green);
+            border-color: var(--accent-green);
+            color: white;
+        }
+
+        .syllabus-item.active .syllabus-icon {
+            border-color: var(--accent-blue);
+            animation: pulse 1.8s infinite;
+        }
+
+        .syllabus-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .syllabus-type {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            opacity: 0.6;
+            flex-shrink: 0;
+        }
+
+        .log-line {
+            padding: 3px 16px;
+            font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            line-height: 1.6;
+            word-break: break-all;
+        }
+
+        .log-line.highlight { color: var(--accent-cyan); }
+        .log-line.error { color: var(--accent-red); }
+        .log-line.success { color: var(--accent-green); }
+
+        .dash-footer {
+            display: flex;
+            justify-content: center;
+            margin-top: 24px;
+            gap: 12px;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           VIEW 4: SETTINGS
+           ═══════════════════════════════════════════════════════════ */
+
+        #view-settings {
+            padding: 40px 20px;
+        }
+
+        .settings-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 36px;
+        }
+
+        .back-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            font-size: 16px;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .settings-form {
+            max-width: 560px;
+        }
+
+        .settings-section-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+        }
+
+        #settings-success {
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            font-size: 13px;
+            color: #6ee7b7;
+            display: none;
+            margin-bottom: 16px;
+        }
+
+        /* ═══ LOADING SPINNER ═══ */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ═══ COMPLETION SCREEN ═══ */
+        .completion-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(6, 8, 15, 0.9);
+            backdrop-filter: blur(20px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .completion-overlay.active { display: flex; }
+
+        .completion-icon {
+            font-size: 64px;
+            animation: bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes bounceIn {
+            0% { transform: scale(0); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .completion-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            background: var(--gradient-accent);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .completion-subtitle {
+            color: var(--text-secondary);
+            font-size: 15px;
+        }
+
+        /* ═══ RESPONSIVE ═══ */
+        @media (max-width: 768px) {
+            .dash-body { grid-template-columns: 1fr; }
+            .dash-stats { grid-template-columns: 1fr; }
+            .launch-options { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="bg-orb bg-orb-1"></div>
+<div class="bg-orb bg-orb-2"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     VIEW 1: SETUP WIZARD (First-time BYOK)
+     ═══════════════════════════════════════════════════════════ -->
+<div id="view-setup" class="view">
+    <div class="setup-wrapper">
+        <div class="setup-header">
+            <div class="logo">ACCCE</div>
+            <div class="subtitle">Automated Course Completion & Certification Engine</div>
+        </div>
+
+        <div class="setup-step-indicator">
+            <div class="step-dot active"></div>
+            <div class="step-dot"></div>
+        </div>
+
+        <div class="setup-card">
+            <div class="card">
+                <div class="trust-badge">
+                    <span class="icon">🔒</span>
+                    <span class="text">Your API keys are stored <strong>locally on your device only</strong>. They are never uploaded or shared.</span>
+                </div>
+
+                <div id="setup-error"></div>
+
+                <div class="input-group">
+                    <label>ACCCE Engine Token</label>
+                    <input type="text" id="setup-engine-token" placeholder="Enter your ACCCE Engine token" autocomplete="off" spellcheck="false">
+                    <span class="input-hint">Your trial or paid license token for the ACCCE engine. <a href="#" style="color:var(--accent-blue); text-decoration:none;" onclick="openExternalLink('https://coursera-licensing-service.onrender.com/')">Don't have one? Get a key here.</a></span>
+                </div>
+
+                <div class="input-group">
+                    <label>Gemini API Key</label>
+                    <input type="password" id="setup-gemini-key" placeholder="Enter your Gemini API key" autocomplete="off" spellcheck="false">
+                    <span class="input-hint">Get yours free at <strong>aistudio.google.com</strong></span>
+                </div>
+
+                <div class="input-group">
+                    <label>Discord Webhook URL <span style="opacity:0.5">(optional)</span></label>
+                    <input type="text" id="setup-webhook" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+                    <span class="input-hint">Receive progress notifications in Discord.</span>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                    <button class="btn btn-primary" id="btn-setup-save" onclick="saveSetup()">
+                        Save & Continue →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     VIEW 2: LAUNCH SCREEN
+     ═══════════════════════════════════════════════════════════ -->
+<div id="view-launch" class="view">
+    <div class="container">
+        <div class="launch-header">
+            <div class="launch-header-left">
+                <div class="logo logo-small">ACCCE</div>
+            </div>
+            <div class="launch-header-right">
+                <button class="settings-btn" onclick="showView('settings')" title="Settings">⚙</button>
+            </div>
+        </div>
+
+        <div class="launch-hero">
+            <h1>Ready to Launch</h1>
+            <p>Paste your Coursera course URL below and hit start. ACCCE will handle videos, readings, quizzes, and labs automatically.</p>
+        </div>
+
+        <div class="launch-form">
+            <div class="input-group">
+                <label>Course URL or Course ID</label>
+                <input type="text" id="launch-course-url" placeholder="e.g. https://www.coursera.org/learn/assets-threats-and-vulnerabilities" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="launch-options">
+                <div class="input-group">
+                    <label>Module <span style="opacity:0.5">(optional)</span></label>
+                    <select id="launch-module">
+                        <option value="">All Modules</option>
+                        <option value="1">Module 1</option>
+                        <option value="2">Module 2</option>
+                        <option value="3">Module 3</option>
+                        <option value="4">Module 4</option>
+                        <option value="5">Module 5</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="toggle-group">
+                <div class="toggle" id="toggle-headless" onclick="toggleHeadless()"></div>
+                <span class="toggle-label">Headless mode <span style="opacity:0.5">(runs invisibly — use headful for first-time login)</span></span>
+            </div>
+
+            <div id="launch-error"></div>
+
+            <div class="start-btn-wrapper">
+                <button class="btn btn-primary" id="btn-start" onclick="startBot()">
+                    ▶ &nbsp;Start ACCCE
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     VIEW 3: DASHBOARD (Live Progress)
+     ═══════════════════════════════════════════════════════════ -->
+<div id="view-dashboard" class="view">
+    <div class="container">
+        <div class="dash-header">
+            <div class="dash-header-left">
+                <div class="logo logo-small">ACCCE</div>
+                <div id="dash-status-badge" class="status-badge badge-running">
+                    <span class="pulse-dot"></span>
+                    <span id="dash-status-text">RUNNING</span>
+                </div>
+            </div>
+            <div>
+                <span id="dash-course-id" style="font-size:13px; color:var(--text-muted); font-family:'Outfit',sans-serif; font-weight:600;"></span>
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-section">
+            <div class="progress-header">
+                <span class="progress-title">Course Completion</span>
+                <span class="progress-pct" id="dash-progress-pct">0%</span>
+            </div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="dash-progress-fill" style="width:0%"></div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="dash-stats">
+            <div class="stat-card">
+                <div class="stat-label">Completed</div>
+                <div class="stat-value accent" id="dash-completed">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Items</div>
+                <div class="stat-value" id="dash-total">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Current Task</div>
+                <div class="stat-value" id="dash-current" style="font-size:14px; font-weight:600;">—</div>
+            </div>
+        </div>
+
+        <!-- Syllabus + Logs -->
+        <div class="dash-body">
+            <div class="syllabus-panel">
+                <div class="panel-header">📋 Syllabus</div>
+                <div class="panel-body" id="dash-syllabus"></div>
+            </div>
+            <div class="log-panel">
+                <div class="panel-header">🖥 Live Logs</div>
+                <div class="panel-body" id="dash-logs"></div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="dash-footer">
+            <button class="btn btn-danger" id="btn-stop" onclick="stopBot()">⏹ &nbsp;Stop Bot</button>
+            <button class="btn btn-ghost" onclick="showView('launch')" id="btn-back-launch" style="display:none;">← Back to Launch</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     VIEW 4: SETTINGS
+     ═══════════════════════════════════════════════════════════ -->
+<div id="view-settings" class="view">
+    <div class="container">
+        <div class="settings-header">
+            <button class="back-btn" onclick="showView('launch')">←</button>
+            <h2 style="font-family:'Outfit',sans-serif; font-weight:800; font-size:22px;">Settings</h2>
+        </div>
+
+        <div class="settings-form">
+            <div id="settings-success">✅ Settings saved successfully!</div>
+
+            <div class="settings-section-title">API Credentials</div>
+
+            <div class="input-group">
+                <label>ACCCE Engine Token</label>
+                <input type="text" id="settings-engine-token" placeholder="Enter your ACCCE Engine token" autocomplete="off" spellcheck="false">
+                <span class="input-hint">Your active subscription or trial token. <a href="#" style="color:var(--accent-blue); text-decoration:none;" onclick="openExternalLink('https://coursera-licensing-service.onrender.com/')">Get a key here.</a></span>
+            </div>
+
+            <div class="input-group">
+                <label>Gemini API Key</label>
+                <input type="password" id="settings-gemini-key" placeholder="Enter your Gemini API key" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="settings-section-title">Notifications</div>
+
+            <div class="input-group">
+                <label>Discord Webhook URL <span style="opacity:0.5">(optional)</span></label>
+                <input type="text" id="settings-webhook" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+            </div>
+
+            <div style="display:flex; gap:12px; margin-top:8px;">
+                <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+                <button class="btn btn-ghost" onclick="showView('launch')">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ COMPLETION OVERLAY ═══ -->
+<div class="completion-overlay" id="completion-overlay">
+    <div class="completion-icon">🎉</div>
+    <div class="completion-title">Course Completed!</div>
+    <div class="completion-subtitle">All syllabus items have been processed successfully.</div>
+    <button class="btn btn-primary" onclick="dismissCompletion()" style="margin-top:16px;">Back to Launch</button>
+</div>
+
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   APP STATE & NAVIGATION
+   ═══════════════════════════════════════════════════════════ */
+
+let currentView = 'setup';
+let headlessMode = false;
+let pollInterval = null;
+let botWasRunning = false;
+
+async function showView(view) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-' + view).classList.add('active');
+    currentView = view;
+
+    if (view === 'settings') loadSettingsValues();
+    if (view === 'dashboard') startPolling();
+    else stopPolling();
+
+    if (view === 'launch') {
+        try {
+            const creds = await pywebview.api.has_credentials();
+            const isTrial = creds.engine_token && creds.engine_token.toLowerCase().startsWith('trial');
+            const selectEl = document.getElementById('launch-module');
+            const allModulesOpt = selectEl.options[0];
+            if (isTrial) {
+                allModulesOpt.disabled = true;
+                allModulesOpt.textContent = 'Select a Module (Trial Limit)';
+                if (selectEl.value === '') {
+                    selectEl.value = '1';
+                }
+            } else {
+                allModulesOpt.disabled = false;
+                allModulesOpt.textContent = 'All Modules';
+            }
+        } catch (e) {
+            console.error('Error checking trial status:', e);
+        }
+    }
+}
+
+function toggleHeadless() {
+    headlessMode = !headlessMode;
+    document.getElementById('toggle-headless').classList.toggle('active', headlessMode);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INITIALIZATION
+   ═══════════════════════════════════════════════════════════ */
+
+async function init() {
+    // Wait for pywebview API to be ready
+    while (!window.pywebview || !window.pywebview.api) {
+        await new Promise(r => setTimeout(r, 100));
+    }
+
+    try {
+        const creds = await pywebview.api.has_credentials();
+        if (creds.has_credentials) {
+            // Check if bot is already running (e.g., app was reopened from tray)
+            const status = await pywebview.api.is_bot_running();
+            if (status.running) {
+                showView('dashboard');
+            } else {
+                showView('launch');
+            }
+        } else {
+            showView('setup');
+        }
+    } catch (e) {
+        console.error('Init error:', e);
+        showView('setup');
+    }
+}
+
+window.addEventListener('load', init);
+
+/* ═══════════════════════════════════════════════════════════
+   SETUP WIZARD
+   ═══════════════════════════════════════════════════════════ */
+
+async function saveSetup() {
+    const token = document.getElementById('setup-engine-token').value.trim();
+    const key = document.getElementById('setup-gemini-key').value.trim();
+    const webhook = document.getElementById('setup-webhook').value.trim();
+    const errorEl = document.getElementById('setup-error');
+
+    if (!token) {
+        errorEl.textContent = 'Please enter your ACCCE Engine Token.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    if (!key) {
+        errorEl.textContent = 'Please enter your Gemini API Key.';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    errorEl.style.display = 'none';
+    const btn = document.getElementById('btn-setup-save');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Saving...';
+
+    try {
+        const result = await pywebview.api.save_credentials(token, key, webhook);
+        if (result.success) {
+            showView('launch');
+        } else {
+            errorEl.textContent = result.error || 'Failed to save credentials.';
+            errorEl.style.display = 'block';
+        }
+    } catch (e) {
+        errorEl.textContent = 'Error: ' + e;
+        errorEl.style.display = 'block';
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = 'Save & Continue →';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LAUNCH BOT
+   ═══════════════════════════════════════════════════════════ */
+
+async function startBot() {
+    const courseUrl = document.getElementById('launch-course-url').value.trim();
+    const moduleVal = document.getElementById('launch-module').value;
+    const errorEl = document.getElementById('launch-error');
+
+    if (!courseUrl) {
+        errorEl.textContent = 'Please enter a Coursera course URL or course ID.';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    try {
+        const creds = await pywebview.api.has_credentials();
+        const isTrial = creds.engine_token && creds.engine_token.toLowerCase().startsWith('trial');
+        if (isTrial && !moduleVal) {
+            errorEl.textContent = 'Trial License Limit: You must select a specific module to run.';
+            errorEl.style.display = 'block';
+            return;
+        }
+    } catch (e) {
+        console.error('Error validating trial in startBot:', e);
+    }
+
+    errorEl.style.display = 'none';
+    const btn = document.getElementById('btn-start');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Starting...';
+
+    try {
+        const module = moduleVal ? parseInt(moduleVal) : null;
+        const result = await pywebview.api.start_bot(courseUrl, headlessMode, module);
+
+        if (result.success) {
+            botWasRunning = true;
+            showView('dashboard');
+        } else {
+            errorEl.textContent = result.error || 'Failed to start bot.';
+            errorEl.style.display = 'block';
+        }
+    } catch (e) {
+        errorEl.textContent = 'Error: ' + e;
+        errorEl.style.display = 'block';
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '▶ &nbsp;Start ACCCE';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STOP BOT
+   ═══════════════════════════════════════════════════════════ */
+
+async function stopBot() {
+    const btn = document.getElementById('btn-stop');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Stopping...';
+
+    try {
+        await pywebview.api.stop_bot();
+    } catch (e) {
+        console.error('Stop error:', e);
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '⏹ &nbsp;Stop Bot';
+    
+    // Show back button
+    document.getElementById('btn-stop').style.display = 'none';
+    document.getElementById('btn-back-launch').style.display = '';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DASHBOARD POLLING
+   ═══════════════════════════════════════════════════════════ */
+
+function startPolling() {
+    if (pollInterval) return;
+    updateDashboard(); // Immediately
+    pollInterval = setInterval(updateDashboard, 2000);
+}
+
+function stopPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+}
+
+async function updateDashboard() {
+    try {
+        const [status, logs] = await Promise.all([
+            pywebview.api.get_status(),
+            pywebview.api.get_log_tail(60)
+        ]);
+
+        // Course ID
+        document.getElementById('dash-course-id').textContent = status.course_id || '';
+
+        // Status badge
+        const badgeEl = document.getElementById('dash-status-badge');
+        const statusTextEl = document.getElementById('dash-status-text');
+        const pulseDot = badgeEl.querySelector('.pulse-dot');
+
+        badgeEl.className = 'status-badge';
+        if (status.status === 'RUNNING') {
+            badgeEl.classList.add('badge-running');
+            statusTextEl.textContent = 'RUNNING';
+            pulseDot.style.display = '';
+        } else if (status.status === 'IDLE') {
+            badgeEl.classList.add('badge-idle');
+            statusTextEl.textContent = 'IDLE';
+            pulseDot.style.display = 'none';
+        } else if (status.status === 'ERROR') {
+            badgeEl.classList.add('badge-error');
+            statusTextEl.textContent = 'ERROR';
+            pulseDot.style.display = 'none';
+        } else {
+            badgeEl.classList.add('badge-idle');
+            statusTextEl.textContent = status.status || 'OFFLINE';
+            pulseDot.style.display = 'none';
+        }
+
+        // Progress
+        document.getElementById('dash-progress-pct').textContent = status.progress_percent + '%';
+        document.getElementById('dash-progress-fill').style.width = status.progress_percent + '%';
+
+        // Stats
+        document.getElementById('dash-completed').textContent = status.completed_count;
+        document.getElementById('dash-total').textContent = status.total_count;
+
+        // Current node name
+        const currentNodeId = status.current_node;
+        let currentNodeName = '—';
+        if (currentNodeId && status.syllabus_nodes) {
+            const node = status.syllabus_nodes.find(n => n.id === currentNodeId);
+            if (node) currentNodeName = node.name || node.id;
+            else currentNodeName = currentNodeId;
+        }
+        document.getElementById('dash-current').textContent = currentNodeName;
+
+        // Syllabus list
+        const syllabusEl = document.getElementById('dash-syllabus');
+        if (status.syllabus_nodes && status.syllabus_nodes.length > 0) {
+            const completedSet = new Set(status.completed_nodes || []);
+            syllabusEl.innerHTML = status.syllabus_nodes.map(node => {
+                const isCompleted = completedSet.has(node.id);
+                const isActive = node.id === currentNodeId;
+                const cls = isCompleted ? 'completed' : (isActive ? 'active' : '');
+                const icon = isCompleted ? '✓' : (isActive ? '•' : '');
+                return `<div class="syllabus-item ${cls}">
+                    <div class="syllabus-icon">${icon}</div>
+                    <span class="syllabus-name">${escHtml(node.name || node.id)}</span>
+                    <span class="syllabus-type">${escHtml(node.type || '')}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // Log lines
+        const logsEl = document.getElementById('dash-logs');
+        if (logs.lines && logs.lines.length > 0) {
+            logsEl.innerHTML = logs.lines.map(line => {
+                let cls = '';
+                if (line.includes('[ERROR]') || line.includes('CRITICAL')) cls = 'error';
+                else if (line.includes('completed') || line.includes('SUCCESS') || line.includes('✓')) cls = 'success';
+                else if (line.includes('[ENGINE]') || line.includes('[SETUP]')) cls = 'highlight';
+                return `<div class="log-line ${cls}">${escHtml(line)}</div>`;
+            }).join('');
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+
+        // Bot stop detection + completion
+        const botRunning = status.bot_running;
+        
+        document.getElementById('btn-stop').style.display = botRunning ? '' : 'none';
+        document.getElementById('btn-back-launch').style.display = botRunning ? 'none' : '';
+
+        if (botWasRunning && !botRunning) {
+            botWasRunning = false;
+            // Check if course is complete
+            if (status.progress_percent >= 100) {
+                document.getElementById('completion-overlay').classList.add('active');
+            }
+        }
+
+        if (botRunning) botWasRunning = true;
+
+    } catch (e) {
+        console.error('Poll error:', e);
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SETTINGS
+   ═══════════════════════════════════════════════════════════ */
+
+async function loadSettingsValues() {
+    try {
+        const creds = await pywebview.api.has_credentials();
+        document.getElementById('settings-engine-token').value = creds.engine_token || '';
+        document.getElementById('settings-gemini-key').value = creds.gemini_key || '';
+        document.getElementById('settings-webhook').value = creds.webhook_url || '';
+    } catch (e) {
+        console.error('Load settings error:', e);
+    }
+}
+
+async function saveSettings() {
+    const token = document.getElementById('settings-engine-token').value.trim();
+    const key = document.getElementById('settings-gemini-key').value.trim();
+    const webhook = document.getElementById('settings-webhook').value.trim();
+    const successEl = document.getElementById('settings-success');
+
+    if (!token || !key) {
+        alert('Engine Token and Gemini API Key are required.');
+        return;
+    }
+
+    try {
+        const result = await pywebview.api.save_credentials(token, key, webhook);
+        if (result.success) {
+            successEl.style.display = 'block';
+            setTimeout(() => { successEl.style.display = 'none'; }, 3000);
+        } else {
+            alert('Failed to save: ' + (result.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e);
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COMPLETION OVERLAY
+   ═══════════════════════════════════════════════════════════ */
+
+function dismissCompletion() {
+    document.getElementById('completion-overlay').classList.remove('active');
+    showView('launch');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════ */
+
+function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function openExternalLink(url) {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.open_browser) {
+        window.pywebview.api.open_browser(url);
+    } else {
+        window.open(url, '_blank');
+    }
+}
+</script>
+
+</body>
+</html>

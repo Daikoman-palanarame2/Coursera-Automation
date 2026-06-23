@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT,
     ip_address TEXT,
     payment_assigned_at TIMESTAMP WITH TIME ZONE,
+    trial_locked_course_id TEXT DEFAULT NULL,
+    trial_locked_module_index INTEGER DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
