@@ -178,6 +178,7 @@ class ACCCEBackend:
             cmd.append("--headless")
         if module:
             cmd.extend(["--module", str(module)])
+        cmd.append("--gui")
         
         try:
             # Clear log file for fresh run
@@ -192,12 +193,16 @@ class ACCCEBackend:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             
-            # Start a thread to read stdout and write to log
+            # Start a thread to read stdout and write to log in real-time
             def _stream_output():
                 try:
-                    for line in iter(self._bot_process.stdout.readline, b''):
-                        pass  # Output is already captured by TeeLogger in main.py
+                    with open(self._log_path, "a", encoding="utf-8") as f:
+                        for line in iter(self._bot_process.stdout.readline, b''):
+                            decoded_line = line.decode("utf-8", errors="replace")
+                            f.write(decoded_line)
+                            f.flush()
                 except Exception:
+                    pass
                     pass
             
             self._bot_thread = threading.Thread(target=_stream_output, daemon=True)

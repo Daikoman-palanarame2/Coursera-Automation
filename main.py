@@ -621,12 +621,6 @@ def patch_playwright_driver():
         print(f"[SETUP] Optional Playwright driver patch failed: {e}")
 
 def main():
-    patch_playwright_driver()
-    fetch_layout_map()
-    logger = TeeLogger("project_accce.log")
-    sys.stdout = logger
-    sys.stderr = logger
-    
     parser = argparse.ArgumentParser(description="ACCCE CLI Core Controller")
     parser.add_argument("--course-id", required=True, help="Coursera course identifier string")
     parser.add_argument("--mode", default="complete", choices=["complete", "poll", "verify"], help="ACCCE running mode")
@@ -636,7 +630,22 @@ def main():
     parser.add_argument("--api-key", default="", help="Gemini Pro API Key")
     parser.add_argument("--ai-model", default="gemini-flash-latest", help="LLM Model version")
     parser.add_argument("--module", type=int, default=None, help="Specific module number to complete")
+    parser.add_argument("--gui", action="store_true", help="Running inside PyWebView GUI wrapper")
     
+    # Parse known args early to determine if we are running in GUI mode
+    args, unknown = parser.parse_known_args()
+    
+    # In GUI mode, gui_backend.py handles output redirection to the log file.
+    # Otherwise (CLI mode), we initialize TeeLogger to save output logs.
+    if not args.gui:
+        logger = TeeLogger("project_accce.log")
+        sys.stdout = logger
+        sys.stderr = logger
+        
+    patch_playwright_driver()
+    fetch_layout_map()
+    
+    # Parse args fully to enforce required flags and constraints
     args = parser.parse_args()
     
     # Automatically clean course URL to extract the course ID slug
