@@ -37,6 +37,10 @@ echo.
     --hidden-import "webview" ^
     --hidden-import "pystray" ^
     --hidden-import "PIL" ^
+    --collect-data "apify_fingerprint_datapoints" ^
+    --collect-data "browserforge" ^
+    --collect-data "camoufox" ^
+    --collect-data "language_tags" ^
     gui_app.py
 
 if %errorlevel% neq 0 (
