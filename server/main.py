@@ -389,6 +389,13 @@ def hex_to_int(h: str) -> int:
     return int(h, 16)
 
 async def verify_polygon_payment(tx_hash: str) -> dict:
+    # Sandbox check: Allow a specific mock hash if ALLOW_MOCK_PAYMENT is enabled in env
+    allow_mock = os.getenv("ALLOW_MOCK_PAYMENT", "false").strip().lower() == "true"
+    mock_hash = "0x" + "9" * 64
+    if allow_mock and tx_hash.lower() == mock_hash.lower():
+        logger.info(f"Sandbox Mode active. Mock transaction hash accepted: {tx_hash}")
+        return {"success": True, "status": "SUCCESS"}
+
     # Use the RPC URL defined globally
     async with httpx.AsyncClient() as client:
         # 1. Fetch Transaction Receipt

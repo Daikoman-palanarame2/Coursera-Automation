@@ -321,6 +321,19 @@ class TestHardenedLicensing(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("no successful usdt transfer", response.json()["detail"].lower())
 
+    def test_claim_purchase_sandbox_success(self):
+        tx_hash = "0x" + "9" * 64
+        # Patch the environment variable to enable mock payment
+        with patch.dict(os.environ, {"ALLOW_MOCK_PAYMENT": "true"}):
+            response = self.client.post(
+                "/api/v1/web/claim-purchase",
+                json={"email": "buyer@example.com", "tx_hash": tx_hash}
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertTrue(data["success"])
+            self.assertTrue(data["key"].startswith("license-web-"))
+
     @classmethod
     def tearDownClass(cls):
         # Remove test database
