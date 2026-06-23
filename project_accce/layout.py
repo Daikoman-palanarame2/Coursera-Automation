@@ -44,7 +44,8 @@ def get_device_fingerprint() -> str:
                 ps_cmd = "Get-CimInstance -ClassName Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID"
                 res = subprocess.run(
                     ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
-                    capture_output=True, text=True, check=True, timeout=10
+                    capture_output=True, text=True, check=True, timeout=10,
+                    creationflags=0x08000000
                 )
                 uuid_str = res.stdout.strip()
                 if uuid_str and not is_generic_identifier(uuid_str):
@@ -57,7 +58,8 @@ def get_device_fingerprint() -> str:
                 ps_cmd = "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty ProcessorId"
                 res = subprocess.run(
                     ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
-                    capture_output=True, text=True, check=True, timeout=10
+                    capture_output=True, text=True, check=True, timeout=10,
+                    creationflags=0x08000000
                 )
                 cpu_str = res.stdout.strip()
                 if cpu_str and not is_generic_identifier(cpu_str):

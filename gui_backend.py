@@ -21,6 +21,12 @@ class ACCCEBackend:
         self._config_path = os.path.join(self._base_dir, "config.json")
         self._bot_process: Optional[subprocess.Popen] = None
         self._bot_thread: Optional[threading.Thread] = None
+        
+        # License check caching configuration
+        self._cache_lock = threading.Lock()
+        self._cached_license_status: Optional[dict] = None
+        self._cache_timestamp: float = 0.0
+        self._cache_ttl_seconds: int = 14400  # 4-hour TTL for session cache
 
     def open_browser(self, url: str) -> None:
         """Open the given URL in the user's default system web browser."""
@@ -63,6 +69,11 @@ class ACCCEBackend:
     
     def save_credentials(self, engine_token: str, gemini_key: str, webhook_url: str = "") -> dict:
         """Write credentials to .env file."""
+        # Invalidate license status cache safely under lock boundaries
+        with self._cache_lock:
+            self._cached_license_status = None
+            self._cache_timestamp = 0.0
+
         try:
             lines = [
                 "# ACCCE Configuration Settings",
@@ -316,34 +327,55 @@ class ACCCEBackend:
         except Exception as e:
             return {"lines": [f"Error reading log: {e}"]}
             
-    def get_license_status(self) -> dict:
-        """Query the licensing server to check the saved token status."""
-        creds = self.has_credentials()
-        engine_token = creds.get("engine_token", "")
-        backend_url = creds.get("backend_url", "https://coursera-licensing-service.onrender.com")
-        
-        if not engine_token:
-            return {"success": False, "error": "No token saved."}
+    def get_license_status(self, force_refresh: bool = False) -> dict:
+        """Query the licensing server to check the saved token status with session caching and soft TTL."""
+        with self._cache_lock:
+            now = time.time()
+            cache_age = now - self._cache_timestamp
             
-        try:
-            status_url = f"{backend_url.rstrip('/')}/api/v1/web/status"
-            fingerprint = get_device_fingerprint()
-            response = requests.post(
-                status_url,
-                json={"key": engine_token},
-                headers={"X-Device-ID": fingerprint},
-                timeout=10
-            )
-            if response.status_code == 200:
-                return {"success": True, "data": response.json()}
-            else:
-                try:
-                    err_detail = response.json().get("detail", "Unknown server error")
-                except Exception:
-                    err_detail = response.text
-                return {"success": False, "error": err_detail}
-        except Exception as e:
-            return {"success": False, "error": f"Network error: {e}"}
+            # Check if cache is still completely valid and unexpired
+            if not force_refresh and self._cached_license_status is not None:
+                if cache_age < self._cache_ttl_seconds:
+                    return self._cached_license_status
+            
+            # Cache miss or explicit refresh triggered
+            creds = self.has_credentials()
+            engine_token = creds.get("engine_token", "")
+            backend_url = creds.get("backend_url", "https://coursera-licensing-service.onrender.com")
+            
+            if not engine_token:
+                return {"success": False, "error": "No token saved."}
+                
+            try:
+                status_url = f"{backend_url.rstrip('/')}/api/v1/web/status"
+                fingerprint = get_device_fingerprint()
+                response = requests.post(
+                    status_url,
+                    json={"key": engine_token},
+                    headers={"X-Device-ID": fingerprint},
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    result = {"success": True, "data": response.json()}
+                    # Update cache safely under lock boundaries
+                    self._cached_license_status = result
+                    self._cache_timestamp = now
+                    return result
+                else:
+                    try:
+                        err_detail = response.json().get("detail", "Unknown server error")
+                    except Exception:
+                        err_detail = response.text
+                    result = {"success": False, "error": err_detail}
+                    # Update cache safely even for server errors so we don't spam requests
+                    self._cached_license_status = result
+                    self._cache_timestamp = now
+                    return result
+            except Exception as e:
+                # Network failure fallback strategy: If cache exists, return it as temporary grace
+                if self._cached_license_status is not None:
+                    return self._cached_license_status
+                return {"success": False, "error": f"Network error: {e}"}
 
     def claim_trial(self, email: str) -> dict:
         """Request a free 24-hour trial key using the local device fingerprint (HWID)."""

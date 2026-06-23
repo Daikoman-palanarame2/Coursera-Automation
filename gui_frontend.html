@@ -1665,9 +1665,15 @@ async function saveSettings() {
    LICENSE PORTAL PANEL (EMBEDDED checkout)
    ═══════════════════════════════════════════════════════════ */
 
-async function loadLicenseStatus() {
+async function loadLicenseStatus(force = false) {
     const statusEl = document.getElementById('license-status-card');
-    statusEl.innerHTML = '<div style="padding:10px;"><div class="spinner" style="display:inline-block; vertical-align:middle; margin-right:8px;"></div> Checking key status...</div>';
+    statusEl.innerHTML = `
+        <div style="padding: 24px; text-align: center;">
+            <div class="spinner" style="display: inline-block; margin-bottom: 12px; width: 28px; height: 28px;"></div>
+            <div style="font-size: 0.95rem; font-weight: 500; color: var(--text-primary); letter-spacing: 0.3px;">Verifying License Status...</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">Connecting to secure authorization node</div>
+        </div>
+    `;
     
     if (countdownInterval) {
         clearInterval(countdownInterval);
@@ -1675,7 +1681,7 @@ async function loadLicenseStatus() {
     }
 
     try {
-        const result = await pywebview.api.get_license_status();
+        const result = await pywebview.api.get_license_status(force);
         if (result.success) {
             const data = result.data;
             let statusClass = 'status-active';
@@ -1736,16 +1742,26 @@ async function loadLicenseStatus() {
             }
             
             statusEl.innerHTML = `
-                <div class="response-header">
-                    <h3>Subscription Gating Info</h3>
+                <div class="response-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <h3 style="margin: 0;">Subscription Gating Info</h3>
+                        <button class="btn-refresh" title="Refresh License Status" onclick="loadLicenseStatus(true)" style="background: none; border: none; padding: 4px; cursor: pointer; color: var(--text-secondary); display: inline-flex; align-items: center; border-radius: 4px; transition: all 0.2s ease;" onmouseover="this.style.color='var(--accent-jade)'; this.style.transform='rotate(45deg)';" onmouseout="this.style.color='var(--text-secondary)'; this.style.transform='none';">
+                            <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+                        </button>
+                    </div>
                     <span class="status-badge ${statusClass}">${statusText}</span>
                 </div>
                 ${detailsHtml}
             `;
         } else {
             statusEl.innerHTML = `
-                <div class="response-header">
-                    <h3>Gating Status</h3>
+                <div class="response-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <h3 style="margin: 0;">Gating Status</h3>
+                        <button class="btn-refresh" title="Refresh License Status" onclick="loadLicenseStatus(true)" style="background: none; border: none; padding: 4px; cursor: pointer; color: var(--text-secondary); display: inline-flex; align-items: center; border-radius: 4px; transition: all 0.2s ease;" onmouseover="this.style.color='var(--accent-jade)'; this.style.transform='rotate(45deg)';" onmouseout="this.style.color='var(--text-secondary)'; this.style.transform='none';">
+                            <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+                        </button>
+                    </div>
                     <span class="status-badge status-expired">Unregistered</span>
                 </div>
                 <p style="color: var(--accent-red); font-size:13px; line-height:1.5; padding: 10px 0;">
@@ -1757,7 +1773,12 @@ async function loadLicenseStatus() {
             lucide.createIcons();
         }
     } catch (e) {
-        statusEl.innerHTML = `<div style="color:var(--accent-red); padding:10px;">Error loading licensing: ${e}</div>`;
+        statusEl.innerHTML = `
+            <div style="color:var(--accent-red); padding:10px; text-align: center;">
+                <p>Error loading licensing: ${e}</p>
+                <button class="btn-primary" onclick="loadLicenseStatus(true)" style="margin-top: 10px; font-size: 11px; padding: 4px 10px;">Retry Check</button>
+            </div>
+        `;
     }
 }
 
