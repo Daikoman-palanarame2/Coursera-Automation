@@ -39,45 +39,41 @@ def get_device_fingerprint() -> str:
     # 1. OS-Specific Hardware GUIDs
     try:
         if system == "Windows":
-            # A. Native PowerShell query for Motherboard UUID (Avoids deprecated WMIC)
+            # A. Read MachineGuid (extremely stable and unique OS-level key)
             try:
-                ps_cmd = "Get-CimInstance -ClassName Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID"
-                res = subprocess.run(
-                    ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
-                    capture_output=True, text=True, check=True, timeout=10,
-                    creationflags=0x08000000
-                )
-                uuid_str = res.stdout.strip()
-                if uuid_str and not is_generic_identifier(uuid_str):
-                    components.append("win_board_uuid:" + uuid_str)
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography")
+                machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+                if machine_guid and not is_generic_identifier(machine_guid):
+                    components.append("win_reg_guid:" + machine_guid)
             except Exception:
                 pass
 
-            # B. Native PowerShell query for CPU Processor ID
+            # B. Read BIOS / Motherboard info from Registry (100% silent, no subprocess)
             try:
-                ps_cmd = "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty ProcessorId"
-                res = subprocess.run(
-                    ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
-                    capture_output=True, text=True, check=True, timeout=10,
-                    creationflags=0x08000000
-                )
-                cpu_str = res.stdout.strip()
-                if cpu_str and not is_generic_identifier(cpu_str):
-                    components.append("win_cpu_id:" + cpu_str)
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\BIOS")
+                board_prod = winreg.QueryValueEx(key, "BaseBoardProduct")[0]
+                board_man = winreg.QueryValueEx(key, "BaseBoardManufacturer")[0]
+                if board_prod and not is_generic_identifier(board_prod):
+                    components.append("win_board_prod:" + board_prod)
+                if board_man and not is_generic_identifier(board_man):
+                    components.append("win_board_man:" + board_man)
             except Exception:
                 pass
 
-            # C. Registry Fallback via standard command
-            if not components:
-                try:
-                    import winreg
-                    registry = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-                    key = winreg.OpenKey(registry, r"SOFTWARE\Microsoft\Cryptography")
-                    machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-                    if machine_guid and not is_generic_identifier(machine_guid):
-                        components.append("win_reg_guid:" + machine_guid)
-                except Exception:
-                    pass
+            # C. Read CPU identifier from Registry (100% silent, no subprocess)
+            try:
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+                cpu_identifier = winreg.QueryValueEx(key, "Identifier")[0]
+                cpu_name = winreg.QueryValueEx(key, "ProcessorNameString")[0]
+                if cpu_identifier and not is_generic_identifier(cpu_identifier):
+                    components.append("win_cpu_ident:" + cpu_identifier)
+                if cpu_name and not is_generic_identifier(cpu_name):
+                    components.append("win_cpu_name:" + cpu_name)
+            except Exception:
+                pass
 
         elif system == "Darwin": # macOS
             try:
