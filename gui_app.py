@@ -121,8 +121,8 @@ class ACCCEApp:
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and "--course-id" in sys.argv:
-        if "main.py" in sys.argv:
-            sys.argv.remove("main.py")
+        # Strip the main.py script path dynamically (handles absolute paths under PyInstaller)
+        sys.argv = [arg for arg in sys.argv if not arg.endswith("main.py")]
         import main
         main.main()
     else:
