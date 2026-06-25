@@ -2,7 +2,7 @@
 title ACCCE - Hot Deploy to dist
 echo =======================================================================
 echo   ACCCE: Hot-deploying source files to dist\ACCCE\_internal\
-echo   (No rebuild required)
+echo   (No rebuild required - gui_backend.py is loaded from filesystem)
 echo =======================================================================
 echo.
 
