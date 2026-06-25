@@ -1,5 +1,11 @@
 import os
 import sys
+
+# Force Playwright to use the user's local AppData directory for browsers when compiled.
+# This avoids needing to bundle the massive Chromium binaries inside the PyInstaller executable.
+if getattr(sys, 'frozen', False):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.expandvars(r"%LOCALAPPDATA%\ms-playwright")
+
 import json
 import time
 import sqlite3
@@ -8,33 +14,60 @@ import threading
 import webbrowser
 import requests
 from typing import Optional, Dict, Any, List
+from playwright.sync_api import sync_playwright
 from project_accce.layout import get_device_fingerprint
 
 class ACCCEBackend:
     """Python-side API bridge exposed to the PyWebView frontend via js_api."""
     
     def __init__(self):
+        # Anchor single source of truth in APPDATA for user configuration, data, and log persistence
+        self._app_data_dir = os.path.join(
+            os.getenv("APPDATA", os.path.dirname(os.path.abspath(__file__))), 
+            "ACCCE"
+        )
+        os.makedirs(self._app_data_dir, exist_ok=True)
+
         if getattr(sys, 'frozen', False):
             # In PyInstaller, sys._MEIPASS is the temporary directory containing resources
             self._resources_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-            self._app_root = os.path.dirname(sys.executable)
+            self._app_root = self._resources_dir
         else:
             self._resources_dir = os.path.dirname(os.path.abspath(__file__))
             self._app_root = self._resources_dir
             
         self._base_dir = self._resources_dir
-        self._db_path = os.path.join(self._app_root, "project_accce.db")
-        self._log_path = os.path.join(self._app_root, "project_accce.log")
-        self._env_path = os.path.join(self._app_root, ".env")
-        self._config_path = os.path.join(self._app_root, "config.json")
+        self._db_path = os.path.join(self._app_data_dir, "project_accce.db")
+        self._log_path = os.path.join(self._app_data_dir, "project_accce.log")
+        self._env_path = os.path.join(self._app_data_dir, ".env")
+        self._config_path = os.path.join(self._app_data_dir, "config.json")
+
+        # Migrate existing configurations from old package/executable directory to APPDATA if present
+        old_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+        if old_dir != self._app_data_dir:
+            for filename in ["project_accce.db", "project_accce.log", ".env", "config.json"]:
+                old_file = os.path.join(old_dir, filename)
+                new_file = os.path.join(self._app_data_dir, filename)
+                if os.path.exists(old_file) and not os.path.exists(new_file):
+                    import shutil
+                    try:
+                        shutil.copy2(old_file, new_file)
+                    except Exception:
+                        pass
+
         self._bot_process: Optional[subprocess.Popen] = None
         self._bot_thread: Optional[threading.Thread] = None
+        self._window = None
         
         # License check caching configuration
         self._cache_lock = threading.Lock()
         self._cached_license_status: Optional[dict] = None
         self._cache_timestamp: float = 0.0
         self._cache_ttl_seconds: int = 14400  # 4-hour TTL for session cache
+
+        # Eagerly initialize SQLite schema to prevent file system races
+        from project_accce.orchestrator.db import ACCCEStorage
+        self._db = ACCCEStorage(self._db_path)
 
     def open_browser(self, url: str) -> None:
         """Open the given URL in the user's default system web browser."""
@@ -53,7 +86,8 @@ class ACCCEBackend:
                 "engine_token": "",
                 "gemini_key": "",
                 "webhook_url": "",
-                "backend_url": "https://coursera-licensing-service.onrender.com"
+                "backend_url": "https://coursera-licensing-service.onrender.com",
+                "ai_model": "gemini-flash-latest"
             }
         
         env_vars = {}
@@ -61,21 +95,32 @@ class ACCCEBackend:
             for line in f:
                 line = line.strip()
                 if "=" in line and not line.startswith("#"):
-                    key, _, val = line.partition("=")
-                    env_vars[key.strip()] = val.strip()
+                     key, _, val = line.partition("=")
+                     env_vars[key.strip()] = val.strip()
         
         engine_token = env_vars.get("COURSERA_ENGINE_TOKEN", "")
         gemini_key = env_vars.get("GEMINI_API_KEY", "")
+        
+        # Load from config.json to check for ai_model
+        ai_model = "gemini-flash-latest"
+        if os.path.exists(self._config_path):
+            try:
+                with open(self._config_path, "r") as f:
+                    cfg = json.load(f)
+                    ai_model = cfg.get("ai_model", "gemini-flash-latest")
+            except Exception:
+                pass
         
         return {
             "has_credentials": bool(engine_token and gemini_key),
             "engine_token": engine_token,
             "gemini_key": gemini_key,
-            "webhook_url": env_vars.get("DISCORD_WEBHOOK_URL", ""),
-            "backend_url": env_vars.get("COURSERA_ENGINE_BACKEND_URL", "https://coursera-licensing-service.onrender.com")
+            "webhook_url": "",
+            "backend_url": env_vars.get("COURSERA_ENGINE_BACKEND_URL", "https://coursera-licensing-service.onrender.com"),
+            "ai_model": ai_model
         }
     
-    def save_credentials(self, engine_token: str, gemini_key: str, webhook_url: str = "") -> dict:
+    def save_credentials(self, engine_token: str, gemini_key: str, webhook_url: str = "", ai_model: str = "gemini-flash-latest") -> dict:
         """Write credentials to .env file."""
         # Invalidate license status cache safely under lock boundaries
         with self._cache_lock:
@@ -83,19 +128,22 @@ class ACCCEBackend:
             self._cache_timestamp = 0.0
 
         try:
+            # Preserve the existing backend URL so local-server overrides are not clobbered
+            existing_creds = self.has_credentials()
+            backend_url = existing_creds.get(
+                "backend_url", "https://coursera-licensing-service.onrender.com"
+            )
             lines = [
                 "# ACCCE Configuration Settings",
                 f"COURSERA_ENGINE_TOKEN={engine_token}",
-                f"COURSERA_ENGINE_BACKEND_URL=https://coursera-licensing-service.onrender.com",
+                f"COURSERA_ENGINE_BACKEND_URL={backend_url}",
                 f"GEMINI_API_KEY={gemini_key}",
             ]
-            if webhook_url:
-                lines.append(f"DISCORD_WEBHOOK_URL={webhook_url}")
-            
+
             with open(self._env_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
             
-            # Also update config.json with the API key
+            # Also update config.json with the API key and model
             config = {}
             if os.path.exists(self._config_path):
                 try:
@@ -104,8 +152,24 @@ class ACCCEBackend:
                 except Exception:
                     pass
             config["api_key"] = gemini_key
-            if webhook_url:
-                config["webhook_url"] = webhook_url
+            config["ai_model"] = ai_model
+            # Keep api_keys list in sync; preserve any extra keys already listed
+            existing_keys = config.get("api_keys", [])
+            if isinstance(existing_keys, list):
+                # Put the new key first so it is tried first
+                if gemini_key not in existing_keys:
+                    existing_keys.insert(0, gemini_key)
+                else:
+                    existing_keys.remove(gemini_key)
+                    existing_keys.insert(0, gemini_key)
+                config["api_keys"] = existing_keys
+            else:
+                config["api_keys"] = [gemini_key]
+            
+            # Ensure config.json doesn't contain any old webhook url references
+            if "webhook_url" in config:
+                del config["webhook_url"]
+                
             with open(self._config_path, "w") as f:
                 json.dump(config, f, indent=2)
             
@@ -115,7 +179,7 @@ class ACCCEBackend:
     
     # ── Bot Control ──
     
-    def start_bot(self, course_url: str, headless: bool = False, module: int = None) -> dict:
+    def start_bot(self, course_url: str, headless: bool = False, module: int = None, force_rescan: bool = False) -> dict:
         """Start the ACCCE bot as a subprocess."""
         if self._bot_process and self._bot_process.poll() is None:
             return {"success": False, "error": "Bot is already running."}
@@ -126,6 +190,16 @@ class ACCCEBackend:
             course_id = course_id.split("/learn/")[-1].split("/")[0].strip()
         if not course_id:
             return {"success": False, "error": "Course URL or ID cannot be empty."}
+        
+        # Dynamically duplicate entire token matrix profile over to target course profile tracking identifiers
+        discovery_session = self._db.get_session("__discovery_profile__")
+        if not (discovery_session and discovery_session.get("cookies")):
+            return {"success": False, "error": "No active session tokens found. Please click 'Sync' first."}
+        
+        try:
+            self._db.save_session(course_id, discovery_session["cookies"], {})
+        except Exception as e:
+            return {"success": False, "error": f"Failed to duplicate session cookies: {str(e)}"}
         
         # Check trial lock status on server
         creds = self.has_credentials()
@@ -182,11 +256,13 @@ class ACCCEBackend:
             python_exe = sys.executable
         
         main_py_path = os.path.join(self._resources_dir, "main.py")
-        cmd = [python_exe, main_py_path, "--course-id", course_id]
+        cmd = [python_exe, main_py_path, "--course-id", course_id, "--db-path", self._db_path]
         if headless:
             cmd.append("--headless")
         if module:
             cmd.extend(["--module", str(module)])
+        if force_rescan:
+            cmd.append("--force-rescan")
         cmd.append("--gui")
         
         try:
@@ -194,9 +270,17 @@ class ACCCEBackend:
             with open(self._log_path, "w", encoding="utf-8") as f:
                 f.write("")
             
+            # Force environmental streams to operate unbuffered across child threads and pass appdata dir
+            child_env = {
+                **os.environ, 
+                "PYTHONUNBUFFERED": "1",
+                "ACCCE_APPDATA_DIR": self._app_data_dir
+            }
+            
             self._bot_process = subprocess.Popen(
                 cmd,
                 cwd=self._app_root,
+                env=child_env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
@@ -254,7 +338,7 @@ class ACCCEBackend:
         if not os.path.exists(self._db_path):
             return {
                 "bot_running": bot_status["running"],
-                "status": "OFFLINE",
+                "status": "RUNNING" if bot_status["running"] else "OFFLINE",
                 "course_id": "",
                 "progress_percent": 0,
                 "completed_count": 0,
@@ -273,7 +357,7 @@ class ACCCEBackend:
                 conn.close()
                 return {
                     "bot_running": bot_status["running"],
-                    "status": "IDLE",
+                    "status": "RUNNING" if bot_status["running"] else "IDLE",
                     "course_id": "",
                     "progress_percent": 0,
                     "completed_count": 0,
@@ -432,6 +516,58 @@ class ACCCEBackend:
         except Exception as e:
             return {"success": False, "error": f"Failed to connect to licensing server: {e}"}
     
+    def extract_course_id(self, course_url: str) -> Optional[str]:
+        """Safely parse the target course ID slug from course URL."""
+        val = course_url.strip()
+        if val.startswith("http://") or val.startswith("https://"):
+            if "coursera.org/learn/" not in val:
+                return None
+            val = val.split("/learn/")[-1].split("/")[0].strip()
+        
+        # Enforce that the course ID is a valid slug structure (alphanumeric and dashes/underscores)
+        import re
+        if not re.match(r"^[a-zA-Z0-9_\-]+$", val):
+            return None
+            
+        return val if val else None
+
+    def import_cauth_cookie(self, course_url: str, cauth_value: str) -> Dict[str, Any]:
+        """Manually import a verified CAUTH cookie value into SQLite sessions, sanitizing input."""
+        import re
+        COOKIE_SAFE_REGEX = re.compile(r"^[a-zA-Z0-9_\.\-\=\+\/]+$")
+        
+        cauth_clean = cauth_value.strip()
+        
+        # 1. Input Validation Guard
+        if not COOKIE_SAFE_REGEX.match(cauth_clean):
+            return {"success": False, "error": "Invalid character token structure detected. Input rejected."}
+            
+        course_id = self.extract_course_id(course_url)
+        if not course_id:
+            return {"success": False, "error": "Unable to safely parse the target Course ID slug."}
+            
+        # 2. Structural Reconstruction of standard Playwright Cookie Object Matrix
+        cookie_payload = [
+            {
+                "name": "CAUTH",
+                "value": cauth_clean,
+                "domain": ".coursera.org",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True, # Hardens session memory against client-side script inspection
+                "sameSite": "Lax"
+            }
+        ]
+        
+        try:
+            from project_accce.orchestrator.db import ACCCEStorage
+            db = ACCCEStorage(self._db_path)
+            # Pass cookies directly (save_session serializes to JSON)
+            db.save_session(course_id, cookie_payload, {})
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": f"Database mutation failed: {str(e)}"}
+
     def cleanup(self):
         """Called when the app is closing."""
         if self._bot_process and self._bot_process.poll() is None:
@@ -440,3 +576,119 @@ class ACCCEBackend:
                 self._bot_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self._bot_process.kill()
+
+    def set_window(self, window):
+        """Store the webview window instance to open file dialogs."""
+        self._window = window
+
+    def export_logs(self) -> dict:
+        """Export the bot's execution logs to a file chosen by the user."""
+        if not self._window:
+            return {"success": False, "error": "PyWebView main frame window reference uninitialized."}
+        try:
+            import webview
+            import shutil
+            result = self._window.create_file_dialog(
+                dialog_type=webview.SAVE_DIALOG,
+                file_types=("Log Files (*.log)", "Text Files (*.txt)", "All Files (*.*)"),
+                save_filename="accce_execution_history.log"
+            )
+            if not result:
+                return {"success": False, "error": "Export cancelled by operator."}
+            
+            destination_path = result[0] if isinstance(result, list) else result
+            if os.path.exists(self._log_path):
+                shutil.copy2(self._log_path, destination_path)
+            else:
+                with open(destination_path, "w", encoding="utf-8") as f:
+                    f.write("No logs available yet.")
+            return {"success": True, "path": destination_path}
+        except Exception as e:
+            return {"success": False, "error": f"Native file write IO subsystem failure: {str(e)}"}
+
+    def discover_courses(self) -> dict:
+        """Launch headed Playwright browser to log in and capture session cookies once CAUTH is present."""
+        import logging
+        logger = logging.getLogger("api")
+        
+        session_captured = False
+        captured_cookies = []
+        error_message = None
+        browser_closed_by_user = True
+        
+        # Override Playwright browsers path if frozen to locate system-wide chrome
+        if getattr(sys, 'frozen', False):
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.expandvars(r"%LOCALAPPDATA%\ms-playwright")
+            
+        with sync_playwright() as p:
+            browser = None
+            try:
+                # Launch headed browser cleanly without persistent context conflicts
+                browser = p.chromium.launch(headless=False, args=["--no-sandbox"])
+                context = browser.new_context(viewport={"width": 1024, "height": 768})
+                
+                # Retrieve saved cookies from general discovery profile in DB if present
+                session = self._db.get_session("__discovery_profile__")
+                if session and session.get("cookies"):
+                    try:
+                        context.add_cookies(session["cookies"])
+                    except Exception as cookie_err:
+                        logger.warning(f"Could not load previous session cookies into context: {cookie_err}")
+                
+                page = context.new_page()
+                
+                # Track manual closure attempts safely
+                def on_page_close():
+                    nonlocal browser_closed_by_user
+                    logger.info("[DISCOVERY] Browser target frame closed by user context.")
+                    
+                page.on("close", lambda p: on_page_close())
+                
+                print("[ENGINE] Launching headed portal discovery dashboard instance.")
+                page.goto("https://www.coursera.org/?authMode=login", timeout=60000)
+                
+                # Run maximum 3 minutes authentication runway
+                for _ in range(180):
+                    if page.is_closed():
+                        break
+                        
+                    cookies = context.cookies()
+                    # Anchor logic: Look for the structural authorization signature string
+                    has_cauth = any(c.get("name") == "CAUTH" for c in cookies)
+                    
+                    if has_cauth:
+                        # Success: Grab ALL cookies generated during the handshake sequence
+                        captured_cookies = cookies
+                        session_captured = True
+                        browser_closed_by_user = False
+                        break
+                        
+                    page.wait_for_timeout(1000)
+                    
+            except Exception as e:
+                logger.error(f"Session capture telemetry failed: {e}")
+                error_message = f"Interface connection failure: {str(e)}"
+            finally:
+                if browser:
+                    try:
+                        browser.close()
+                    except Exception as close_err:
+                        logger.debug(f"Discovery cleanup exception during browser close: {close_err}")
+                        
+        if error_message:
+            return {"success": False, "error": error_message}
+            
+        if browser_closed_by_user or not session_captured:
+            return {"success": False, "error": "Authentication window closed or timed out prior to login detection."}
+            
+        # Commit master profile snapshot records down to core database parameters
+        try:
+            self._db.save_session("__discovery_profile__", captured_cookies, {})
+        except Exception as db_err:
+            logger.error(f"Failed to save captured session cookies to database: {db_err}")
+            return {"success": False, "error": f"Database mutation failed: {str(db_err)}"}
+            
+        return {
+            "success": True,
+            "message": "Coursera authentication tokens verified and securely synced."
+        }

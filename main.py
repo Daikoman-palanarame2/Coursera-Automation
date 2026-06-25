@@ -1,12 +1,20 @@
 import os
 import sys
+
+# Force Playwright to use the user's local AppData directory for browsers when compiled.
+if getattr(sys, 'frozen', False):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.expandvars(r"%LOCALAPPDATA%\ms-playwright")
+
 import argparse
 import time
 import json
 from dotenv import load_dotenv
 
 # Determine the application root directory (where ACCCE.exe or main.py lives)
-if getattr(sys, 'frozen', False):
+app_root_override = os.getenv("ACCCE_APPDATA_DIR")
+if app_root_override:
+    app_root = app_root_override
+elif getattr(sys, 'frozen', False):
     app_root = os.path.dirname(sys.executable)
 else:
     app_root = os.path.dirname(os.path.abspath(__file__))
@@ -17,7 +25,7 @@ load_dotenv(dotenv_path=env_path)
 from project_accce.stealth.browser import launch_stealth_browser
 from project_accce.behavior.page import HumanizedPage
 from project_accce.behavior.math_utils import poisson_sleep
-from project_accce.cognitive.quiz import extract_quiz_payloads, solve_quiz_with_gemini
+from project_accce.cognitive.quiz import extract_quiz_payloads, solve_quiz_with_gemini, check_checkbox_safely_scoped
 from project_accce.cognitive.lab import setup_lab_interceptor, WebSocketLabClient, run_closed_loop_lab_agent
 from project_accce.orchestrator.db import ACCCEStorage
 from project_accce.orchestrator.notifier import send_discord_notification
@@ -29,17 +37,25 @@ def verify_node_completed_on_page(hpage: HumanizedPage, node_id: str, timeout_se
     print(f"[ENGINE] Verifying completion status for node {node_id} on page...")
     for _ in range(timeout_sec):
         is_completed = hpage.page.evaluate('''(nodeId) => {
-            const anchor = document.querySelector(`a[href*="${nodeId}"]`);
-            if (!anchor) return false;
-            if (anchor.querySelector('[data-testid="learn-item-success-icon"]')) return true;
-            const svg = anchor.querySelector('svg');
-            if (svg) {
-                const title = svg.querySelector('title');
-                if (title && title.textContent.includes("Completed")) return true;
-                if (svg.classList.contains("css-1cdzuc5")) return true;
+            const a = document.querySelector(`a[href*="${nodeId}"]`);
+            if (!a) return false;
+            
+            let isCompleted = false;
+            if (a.textContent.includes("Completed")) {
+                isCompleted = true;
+            } else if (a.querySelector('[data-testid="learn-item-success-icon"]')) {
+                isCompleted = true;
+            } else {
+                const svgEl = a.querySelector('svg');
+                if (svgEl) {
+                    const ariaLabel = svgEl.getAttribute('aria-label') || '';
+                    const hasSuccessClass = svgEl.classList.contains('css-1cdzuc5');
+                    if (ariaLabel.toLowerCase().includes('completed') || hasSuccessClass) {
+                        isCompleted = true;
+                    }
+                }
             }
-            if (anchor.textContent.includes("Completed")) return true;
-            return false;
+            return isCompleted;
         }''', node_id)
         if is_completed:
             print(f"[ENGINE] Verification SUCCESS: Node {node_id} is marked as completed on Coursera!")
@@ -47,7 +63,172 @@ def verify_node_completed_on_page(hpage: HumanizedPage, node_id: str, timeout_se
         time.sleep(1)
     return False
 
-def process_syllabus_node(
+def handle_active_modal(hpage: HumanizedPage) -> bool:
+    """
+    Checks if an active Honor Code or confirmation modal is open on the page.
+    If so, checks any visible checkboxes and clicks the confirmation/continue button.
+    Returns True if a modal was handled, False otherwise.
+    """
+    modal_selectors = [
+        "[data-testid='HonorCodeModal']",
+        "div[role='dialog']",
+        "div[role='alertdialog']",
+        ".rc-Modal",
+        ".cds-dialog",
+        ".cds-Dialog-dialog"
+    ]
+    active_modal = None
+    for sel in modal_selectors:
+        try:
+            loc = hpage.page.locator(sel)
+            if loc.count() > 0 and loc.last.is_visible():
+                active_modal = loc.last
+                print(f"[ENGINE] Detected active modal overlay: '{sel}'")
+                break
+        except Exception:
+            pass
+
+    if not active_modal:
+        return False
+
+    checkbox_selectors = [
+        "input[type='checkbox']#honor-code-checkbox",
+        "input[type='checkbox'][name='honor-code']",
+        "label:has-text('Honor Code') input",
+        "input#agreement-checkbox",
+        "input#agreement-checkbox-base",
+        "input[type='checkbox']#agreement-checkbox-base",
+        "input[type='checkbox']"
+    ]
+    for sel in checkbox_selectors:
+        try:
+            if active_modal.locator(sel).count() > 0 and active_modal.locator(sel).first.is_visible():
+                print(f"[ENGINE] Found checkbox '{sel}' inside modal. Checking safely...")
+                check_checkbox_safely_scoped(active_modal, sel)
+                time.sleep(1)
+                break
+        except Exception as e:
+            print(f"[ENGINE] Error checking checkbox inside modal: {e}")
+
+    confirm_selectors = [
+        "button:has-text(/^Continue$/i)",
+        "button:has-text(/^Start Quiz$/i)",
+        "button:has-text(/^Start attempt$/i)",
+        "button:has-text(/^Start Attempt$/i)",
+        "button:has-text(/^I agree$/i)",
+        "button:has-text(/^I Agree$/i)",
+        "button:has-text(/^Start Assignment$/i)",
+        "button:has-text(/^Agree and Continue$/i)",
+        "a:has-text(/^Continue$/i)",
+        "a:has-text(/^Start Quiz$/i)",
+        "a:has-text(/^Start attempt$/i)",
+        "a:has-text(/^Start Attempt$/i)",
+        "a:has-text(/^I agree$/i)",
+        "a:has-text(/^I Agree$/i)",
+        "a:has-text(/^Start Assignment$/i)",
+        "a:has-text(/^Agree and Continue$/i)",
+        "button[aria-label='Close']",
+        "button:has-text(/^OK$/i)",
+        "button:has-text(/^Close$/i)",
+        "button:has-text(/^Dismiss$/i)"
+    ]
+    
+    confirm_clicked = False
+    for sel in confirm_selectors:
+        try:
+            btn = active_modal.locator(sel)
+            if btn.count() > 0:
+                for i in range(btn.count()):
+                    el = btn.nth(i)
+                    if el.is_visible():
+                        print(f"[ENGINE] Clicking modal confirmation button: '{sel}'")
+                        el.click()
+                        confirm_clicked = True
+                        break
+            if confirm_clicked:
+                break
+        except Exception as e:
+            print(f"[ENGINE] Error clicking modal button '{sel}': {e}")
+            
+    if confirm_clicked:
+        time.sleep(3)
+        return True
+    return False
+
+class PrerequisiteLoopException(Exception):
+    pass
+
+def process_syllabus_node_with_solver(
+    hpage: HumanizedPage,
+    node: SyllabusNode,
+    api_key,
+    ai_model: str,
+    webhook_url: str,
+    db: ACCCEStorage,
+    course_id: str,
+    syllabus: list,
+    visited_prereqs: set = None,
+    max_depth: int = 5
+) -> bool:
+    if visited_prereqs is None:
+        visited_prereqs = set()
+        
+    if len(visited_prereqs) > max_depth:
+        raise PrerequisiteLoopException(f"Max prerequisite dependency depth of {max_depth} exceeded. Halting to avoid loop trap.")
+
+    print(f"[ENGINE] Target node execution routine for ID: {node.id}")
+    hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
+    
+    # Allow layout stabilization
+    time.sleep(2)
+    current_url = hpage.page.url
+
+    # Check for unauthorized redirect signature patterns
+    if f"/item/{node.id}" not in current_url and "/item/" in current_url:
+        try:
+            redirected_id = current_url.split("/item/")[-1].split("?")[0].split("/")[0].strip()
+        except Exception:
+            print("[ENGINE] Failed to extract redirection ID parameters natively.")
+            return False
+
+        if redirected_id == node.id or redirected_id in visited_prereqs:
+            raise PrerequisiteLoopException(f"Circular dependency anomaly identified on node index: {redirected_id}")
+
+        print(f"[ENGINE] Lock Intercept: Node {node.id} is gated. Redirected to prerequisite: {redirected_id}.")
+        
+        # Create a branch-specific copy of the visited set to track the active stack path
+        next_visited = set(visited_prereqs)
+        next_visited.add(node.id)
+
+        # 1. Structural Dependency Lookup Injection
+        prereq_node = None
+        for n in syllabus:
+            if n.id == redirected_id:
+                prereq_node = n
+                break
+                
+        if not prereq_node:
+            print(f"[ENGINE] System failure: Redirection target {redirected_id} missing from syllabus maps.")
+            return False
+
+        # 2. Recursive Depth-First Resolution Strategy
+        # Solves nested requirements (C -> B -> A) cleanly across the call stack
+        resolved = process_syllabus_node_with_solver(
+            hpage, prereq_node, api_key, ai_model, webhook_url, db, course_id, syllabus, next_visited, max_depth
+        )
+        
+        if resolved:
+            print(f"[ENGINE] Prerequisite {redirected_id} completed successfully. Returning to base node {node.id}.")
+            # Pop back to previous target block element location
+            return process_syllabus_node_with_solver(
+                hpage, node, api_key, ai_model, webhook_url, db, course_id, syllabus, visited_prereqs, max_depth
+            )
+        return False
+
+    # Execute standard completion path handler automation
+    return process_syllabus_node_core(hpage, node, api_key, ai_model, webhook_url, db, course_id)
+
+def process_syllabus_node_core(
     hpage: HumanizedPage,
     node: SyllabusNode,
     api_key,
@@ -61,9 +242,6 @@ def process_syllabus_node(
     Returns True if completed successfully, False otherwise.
     """
     print(f"[ENGINE] Processing node: {node.name or node.id} (Module: {node.module_name or 'Unknown'}, Type: {node.type})")
-    
-    # Navigate to the item
-    hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
     
     if node.type == "video":
         print("[ENGINE] Video lecture detected. Emulating telemetry heartbeats...")
@@ -261,7 +439,24 @@ def process_syllabus_node(
             
             # Navigate/ensure we are on the item page
             hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
-            time.sleep(6)
+            time.sleep(4)
+            
+            # SPA client-side routing sync fallback:
+            # If the page does not render the quiz start button or quiz container after page load,
+            # locate the sidebar item link and click it to trigger client-side React routing.
+            start_sel = get_selector("start_quiz_button")
+            quiz_form_sel = get_selector("quiz_container")
+            if hpage.page.locator(start_sel).count() == 0 and hpage.page.locator(quiz_form_sel).count() == 0:
+                sidebar_selector = f'a[href*="/item/{node.id}"]'
+                if hpage.page.locator(sidebar_selector).count() > 0:
+                    print(f"[ENGINE] SPA Router Desync Detected. Clicking sidebar link {sidebar_selector} to force transition...")
+                    try:
+                        hpage.humanized_click(sidebar_selector)
+                        time.sleep(4)
+                    except Exception as click_err:
+                        print(f"[ENGINE] Sidebar click fallback error: {click_err}")
+            
+            time.sleep(2)
             
             # Scroll down to make sure the start button renders
             hpage.page.evaluate('''() => {
@@ -284,6 +479,15 @@ def process_syllabus_node(
                     quiz_loaded = True
                     break
                     
+                # 1. Proactive modal check: if a modal is already open on page load, handle it first
+                if handle_active_modal(hpage):
+                    print("[ENGINE] Active modal dismissed proactively. Checking for quiz container...")
+                    time.sleep(2)
+                    if hpage.page.locator(quiz_form_sel).count() > 0:
+                        print("[ENGINE] Quiz form loaded after proactive modal dismissal.")
+                        quiz_loaded = True
+                        break
+                    
                 start_sel = get_selector("start_quiz_button")
                 loc = hpage.page.locator(start_sel)
                 if loc.count() > 0 and loc.first.is_visible():
@@ -298,6 +502,11 @@ def process_syllabus_node(
                         pass
                     
                     print(f"[ENGINE] Found quiz start button. Clicking...")
+                    try:
+                        hpage.page.screenshot(path="C:/Users/MonMon/.gemini/antigravity/brain/65db4f7d-b03a-4068-b35d-3d812fcd9c34/debug_before_click.png")
+                        print("[ENGINE] Saved debug_before_click.png screenshot.")
+                    except Exception as s_err:
+                        print(f"[ENGINE] Failed saving pre-click screenshot: {s_err}")
                     hpage.humanized_click(start_sel)
                     clicked_start = True
                     # Wait up to 8 seconds for quiz form to appear after start click
@@ -319,73 +528,14 @@ def process_syllabus_node(
                     print(f"[ENGINE] Failed to save start screenshot: {e}")
                 
             if clicked_start and not quiz_loaded:
-                # Handle checkboxes/dialogs
-                checkbox_sel = get_selector("agreement_checkbox")
-                found_checkbox = False
-                for _ in range(5):
-                    # Check if the quiz form has loaded while polling for checkboxes
-                    if hpage.page.locator(get_selector("quiz_container")).count() > 0:
-                        print("[ENGINE] Quiz form loaded during dialog/checkbox polling. Skipping dialog handling.")
+                # 2. Reactive modal check: if modal appeared after clicking Start, handle it
+                print("[ENGINE] Start clicked but quiz not loaded. Checking for modal dialogs...")
+                if handle_active_modal(hpage):
+                    print("[ENGINE] Active modal dismissed reactively. Checking for quiz container...")
+                    time.sleep(2)
+                    if hpage.page.locator(quiz_form_sel).count() > 0:
+                        print("[ENGINE] Quiz form loaded after reactive modal dismissal.")
                         quiz_loaded = True
-                        break
-                    if hpage.page.locator(checkbox_sel).filter(visible=True).count() > 0:
-                        found_checkbox = True
-                        break
-                    time.sleep(1)
-                    
-                if found_checkbox and not quiz_loaded:
-                    print(f"[ENGINE] Found agreement checkbox. Checking safely...")
-                    loc = hpage.page.locator(checkbox_sel).first
-                    try:
-                        is_checked = loc.evaluate("el => el.checked")
-                        if not is_checked:
-                            clicked = loc.evaluate('''el => {
-                                let parent = el.closest('label') || el.closest('[data-testid=\"agreement-checkbox\"]') || el.closest('.cds-checkboxAndRadio-label');
-                                if (parent) {
-                                    parent.click();
-                                    return 'parent_label';
-                                }
-                                el.click();
-                                return 'self';
-                            }''')
-                            print(f"[ENGINE] Checked agreement checkbox via: {clicked}")
-                        else:
-                            print(f"[ENGINE] Agreement checkbox is already checked.")
-                    except Exception as e:
-                        print(f"[ENGINE] Error checking checkbox: {e}. Falling back to click.")
-                        hpage.humanized_click(checkbox_sel)
-                    time.sleep(1.5)
-                    
-                if not quiz_loaded:
-                    confirm_sel = get_selector("modal_close_button")
-                    found_confirm = False
-                    for _ in range(5):
-                        # Check if the quiz form has loaded while polling for confirmation button
-                        if hpage.page.locator(get_selector("quiz_container")).count() > 0:
-                            print("[ENGINE] Quiz form loaded during confirmation polling. Skipping confirmation click.")
-                            quiz_loaded = True
-                            break
-                        if hpage.page.locator(confirm_sel).filter(visible=True).count() > 0:
-                            found_confirm = True
-                            break
-                        time.sleep(1)
-                        
-                    if found_confirm and not quiz_loaded:
-                        print(f"[ENGINE] Found confirmation button. Clicking...")
-                        hpage.humanized_click(confirm_sel)
-                        # Poll up to 15 seconds for quiz form to load after Continue
-                        quiz_form_sel = get_selector("quiz_container")
-                        for _ in range(15):
-                            time.sleep(1)
-                            if hpage.page.locator(quiz_form_sel).count() > 0:
-                                print("[ENGINE] Quiz form loaded after Continue click.")
-                                quiz_loaded = True
-                                break
-                else:
-                    all_elems = hpage.page.evaluate('''() => {
-                        return Array.from(document.querySelectorAll('button, a, [role="button"]')).map(el => el.textContent.trim());
-                    }''')
-                    print(f"[ENGINE] Confirmation button not found! All visible button/link texts: {all_elems}")
                     
             # Widen quiz form selector to catch newer Coursera React quiz patterns
             quiz_form_sel = get_selector("quiz_container")
@@ -628,15 +778,26 @@ def patch_playwright_driver():
         print(f"[SETUP] Optional Playwright driver patch failed: {e}")
 
 def main():
+    # Defensively check stream object attributes before overriding line buffers
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(line_buffering=True)
+            except Exception:
+                # Fallback to direct flushing if reconfigure acts unpredictably on specific terminal layers
+                pass
+
     parser = argparse.ArgumentParser(description="ACCCE CLI Core Controller")
     parser.add_argument("--course-id", required=True, help="Coursera course identifier string")
     parser.add_argument("--mode", default="complete", choices=["complete", "poll", "verify"], help="ACCCE running mode")
     parser.add_argument("--headless", action="store_true", help="Launch browser in headless mode")
-    parser.add_argument("--db-path", default="project_accce.db", help="SQLite database file path")
+    parser.add_argument("--db-path", default=os.path.join(app_root, "project_accce.db"), help="SQLite database file path (absolute path recommended)")
     parser.add_argument("--webhook-url", default="", help="Discord Webhook URL for HITL alerts")
     parser.add_argument("--api-key", default="", help="Gemini Pro API Key")
     parser.add_argument("--ai-model", default="gemini-flash-latest", help="LLM Model version")
     parser.add_argument("--module", type=int, default=None, help="Specific module number to complete")
+    parser.add_argument("--force-rescan", action="store_true", help="Force rescan syllabus instead of loading from cache")
     parser.add_argument("--gui", action="store_true", help="Running inside PyWebView GUI wrapper")
     
     # Parse known args early to determine if we are running in GUI mode
@@ -659,17 +820,28 @@ def main():
     if "coursera.org/learn/" in args.course_id:
         args.course_id = args.course_id.split("/learn/")[-1].split("/")[0].strip()
     
-    # Load config.json defaults if present
+    # Load config.json defaults — prefer the stable APPDATA path written by the GUI
     config_data = {}
-    if os.path.exists("config.json"):
-        try:
-            with open("config.json", "r") as f:
-                config_data = json.load(f)
-        except Exception:
-            pass
+    config_candidates = []
+    if app_root_override:
+        config_candidates.append(os.path.join(app_root_override, "config.json"))
+    config_candidates.append(os.path.join(app_root, "config.json"))
+    config_candidates.append("config.json")  # CWD fallback
+    for cfg_path in config_candidates:
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r") as f:
+                    config_data = json.load(f)
+                break
+            except Exception:
+                pass
 
-    api_key = args.api_key or config_data.get("api_keys", config_data.get("api_key", ""))
+    api_key = args.api_key or config_data.get("api_keys", config_data.get("api_key", "")) or os.getenv("GEMINI_API_KEY", "")
     webhook_url = args.webhook_url or config_data.get("webhook_url", "")
+    
+    ai_model = args.ai_model
+    if args.ai_model == "gemini-flash-latest" and "ai_model" in config_data:
+        ai_model = config_data["ai_model"]
     
     if args.mode == "poll":
         # Cron gradebook polling mode
@@ -680,11 +852,16 @@ def main():
     db = ACCCEStorage(args.db_path)
     
     # Initialize Stealth Browser (Layer 1)
-    user_data_dir = os.path.join(os.getcwd(), "chrome_sessions", args.course_id)
+    user_data_dir = os.path.join(app_root, "chrome_sessions", args.course_id)
     
     print("[ENGINE] Initializing stealth browser context...")
     with launch_stealth_browser(headless=args.headless, user_data_dir=user_data_dir) as browser:
-        page = browser.new_page()
+        if browser.pages:
+            page = browser.pages[0]
+        else:
+            page = browser.new_page()
+            
+        page.set_viewport_size({"width": 1280, "height": 800})
         # Automatically mute all audio/video playbacks on the page context
         page.add_init_script("() => { window.addEventListener('play', (e) => { e.target.muted = true; }, true); }")
         hpage = HumanizedPage(page)
@@ -762,137 +939,175 @@ def main():
             print("[ENGINE] Timeout waiting for session authorization. Please run again and complete login.")
             sys.exit(1)
 
-        print("[ENGINE] Dynamically extracting course syllabus items across all modules...")
         syllabus = []
-        extracted_ids = set()
-        
-        modules_to_scan = [args.module] if args.module else range(1, 10)
-        for m_idx in modules_to_scan:
-            module_url = f"https://www.coursera.org/learn/{args.course_id}/home/module/{m_idx}"
-            print(f"[ENGINE] Scanning module {m_idx} page: {module_url}")
-            hpage.humanized_goto(module_url)
-            
-            try:
-                # Target actual syllabus item links (not just course homepage or sidebar links)
-                syllabus_types = ["lecture", "supplement", "exam", "peer", "item", "lti", "ungradedLtiHistory", "ungradedLab", "assignment-submission", "ungradedWidget"]
-                sel = ", ".join(f"a[href*='/{t}/']" for t in syllabus_types)
-                page.wait_for_selector(sel, timeout=12000)
-                time.sleep(2.5) # Extra buffer for elements to stabilize
-            except Exception as wait_err:
-                print(f"[ENGINE] Warning: Timeout waiting for syllabus links on module {m_idx}: {wait_err}")
-                time.sleep(4)
-            
-            # If redirected away, it means this week/module does not exist
-            if f"/home/module/{m_idx}" not in page.url:
-                print(f"[ENGINE] Module {m_idx} not found (redirected to {page.url}). Stopping module scan.")
-                break
-                
-            extracted_nodes = page.evaluate('''(args) => {
-                const courseId = args.courseId;
-                const mIdx = args.mIdx;
-                const items = [];
-                
-                // Extract module name from sidebar link text, fallback to "Module " + mIdx
-                let mName = `Module ${mIdx}`;
-                const sidebarLink = document.querySelector(`a[href*="/learn/${courseId}/home/module/${mIdx}"]`);
-                if (sidebarLink) {
-                    mName = sidebarLink.textContent.trim();
-                }
-                
-                const anchors = Array.from(document.querySelectorAll('a'));
-                const pattern = new RegExp(`\\/learn\\/${courseId}\\/(lecture|supplement|exam|peer|item|lti|ungradedLtiHistory|ungradedLab|assignment-submission|ungradedWidget)\\/([a-zA-Z0-9_-]+)`);
-                
-                anchors.forEach(a => {
-                    const match = a.href.match(pattern);
-                    if (match) {
-                        const type_map = {
-                            "lecture": "video",
-                            "supplement": "reading",
-                            "exam": "quiz",
-                            "peer": "peer",
-                            "item": "reading",
-                            "lti": "lab",
-                            "ungradedLtiHistory": "lab",
-                            "ungradedLab": "lab",
-                            "assignment-submission": "quiz",
-                            "ungradedWidget": "reading"
-                        };
-                        const raw_type = match[1];
-                        const item_id = match[2];
-                        
-                        // Extract and clean lesson name
-                        let cleanName = "";
-                        const pEl = a.querySelector('p');
-                        if (pEl) {
-                            cleanName = pEl.textContent.trim();
-                        } else {
-                            // Fallback text cleaning
-                            cleanName = a.textContent.replace(/Completed/g, '').split(/[·•]/)[0].trim();
-                        }
-                        
-                        // Check for completed status
-                        let isCompleted = false;
-                        if (a.textContent.includes("Completed")) {
-                            isCompleted = true;
-                        } else {
-                            const svgEl = a.querySelector('svg');
-                            if (svgEl && svgEl.textContent.includes("Completed")) {
-                                isCompleted = true;
-                            }
-                        }
-                        
-                        if (!items.some(it => it.id === item_id)) {
-                            items.push({
-                                id: item_id,
-                                type: type_map[raw_type] || "reading",
-                                name: cleanName || item_id,
-                                module_name: mName,
-                                is_completed: isCompleted
-                            });
-                        }
-                    }
-                });
-                return items;
-            }''', {"courseId": args.course_id, "mIdx": m_idx})
-            
-            if not extracted_nodes:
-                print(f"[ENGINE] No syllabus nodes found in module {m_idx}. Stopping module scan.")
-                break
-                
-            module_added_count = 0
-            for item in extracted_nodes:
-                if item["id"] not in extracted_ids:
-                    syllabus.append(SyllabusNode(**item))
-                    extracted_ids.add(item["id"])
-                    module_added_count += 1
-            print(f"[ENGINE] Extracted {len(extracted_nodes)} nodes ({module_added_count} new) in module {m_idx}")
-            
-            if module_added_count == 0:
-                print(f"[ENGINE] No new nodes found. Stopping module scan early.")
-                break
-            
-        print(f"[ENGINE] Total course syllabus items extracted: {len(syllabus)}")
-        
-        # Save initial course state
-        db.save_course_state(args.course_id, None, [], [n.model_dump() for n in syllabus])
-        
-        # Load existing completed nodes from database if present
+        cached_loaded = False
         course_state = db.get_course_state(args.course_id)
         
-        # Synchronize completed nodes using Coursera's live syllabus state as the source of truth
-        syllabus_completed_ids = {n.id for n in syllabus if n.is_completed}
-        syllabus_all_ids = {n.id for n in syllabus}
-        
-        completed_nodes = list(syllabus_completed_ids)
-        print(f"[ENGINE] Synchronized {len(completed_nodes)} completed nodes from live Coursera state.")
-        
-        # Keep any historical completed nodes from DB that are not in the currently scanned syllabus
-        if course_state and course_state.get("completed_nodes"):
-            for node_id in course_state["completed_nodes"]:
-                if node_id not in syllabus_all_ids and node_id not in completed_nodes:
-                    completed_nodes.append(node_id)
-                    print(f"[ENGINE] Retaining historical completed node from DB: {node_id}")
+        if not args.force_rescan:
+            if course_state and course_state.get("syllabus_nodes"):
+                # Check cache expiration tag to guarantee curriculum integrity (7 days max)
+                cache_age_days = (time.time() - course_state.get("updated_at", 0)) / (24 * 3600)
+                if cache_age_days <= 7:
+                    print(f"[ENGINE] Fast Resume: Found valid cached syllabus with {len(course_state['syllabus_nodes'])} items (Cache age: {cache_age_days:.1f} days). Bypassing module scan.")
+                    for node_data in course_state["syllabus_nodes"]:
+                        syllabus.append(SyllabusNode(**node_data))
+                    cached_loaded = True
+                else:
+                    print(f"[ENGINE] Syllabus cache is stale ({cache_age_days:.1f} days > 7 days). Scheduling automatic rescan.")
+            else:
+                print("[ENGINE] No cached syllabus found. Initiating dynamic module scan...")
+        else:
+            print("[ENGINE] Force rescan requested. Purging cached syllabus and initiating scan...")
+            
+        if not cached_loaded:
+            print("[ENGINE] Dynamically extracting course syllabus items across all modules...")
+            extracted_ids = set()
+            modules_to_scan = [args.module] if args.module else range(1, 10)
+            
+            for m_idx in modules_to_scan:
+                module_url = f"https://www.coursera.org/learn/{args.course_id}/home/module/{m_idx}"
+                print(f"[ENGINE] Scanning module {m_idx} page: {module_url}")
+                hpage.humanized_goto(module_url)
                 
+                try:
+                    # Target actual syllabus item links (not just course homepage or sidebar links)
+                    syllabus_types = ["lecture", "supplement", "exam", "peer", "item", "lti", "ungradedLtiHistory", "ungradedLab", "assignment-submission", "ungradedWidget"]
+                    sel = ", ".join(f"a[href*='/{t}/']" for t in syllabus_types)
+                    page.wait_for_selector(sel, timeout=12000)
+                    time.sleep(2.5) # Extra buffer for elements to stabilize
+                except Exception as wait_err:
+                    print(f"[ENGINE] Warning: Timeout waiting for syllabus links on module {m_idx}: {wait_err}")
+                    time.sleep(4)
+                
+                # If redirected away, it means this week/module does not exist
+                if f"/home/module/{m_idx}" not in page.url:
+                    print(f"[ENGINE] Module {m_idx} not found (redirected to {page.url}). Stopping module scan.")
+                    break
+                    
+                extracted_nodes = page.evaluate('''(args) => {
+                    const courseId = args.courseId;
+                    const mIdx = args.mIdx;
+                    const items = [];
+                    
+                    // Extract module name from sidebar link text, fallback to "Module " + mIdx
+                    let mName = `Module ${mIdx}`;
+                    const sidebarLink = document.querySelector(`a[href*="/learn/${courseId}/home/module/${mIdx}"]`);
+                    if (sidebarLink) {
+                        mName = sidebarLink.textContent.trim();
+                    }
+                    
+                    const anchors = Array.from(document.querySelectorAll('a'));
+                    const pattern = new RegExp(`\\/learn\\/${courseId}\\/(lecture|supplement|exam|peer|item|lti|ungradedLtiHistory|ungradedLab|assignment-submission|ungradedWidget)\\/([a-zA-Z0-9_-]+)`);
+                    
+                    anchors.forEach(a => {
+                        const match = a.href.match(pattern);
+                        if (match) {
+                            const type_map = {
+                                "lecture": "video",
+                                "supplement": "reading",
+                                "exam": "quiz",
+                                "peer": "peer",
+                                "item": "reading",
+                                "lti": "lab",
+                                "ungradedLtiHistory": "lab",
+                                "ungradedLab": "lab",
+                                "assignment-submission": "quiz",
+                                "ungradedWidget": "reading"
+                            };
+                            const raw_type = match[1];
+                            const item_id = match[2];
+                            
+                            // Extract and clean lesson name
+                            let cleanName = "";
+                            const pEl = a.querySelector('p');
+                            if (pEl) {
+                                cleanName = pEl.textContent.trim();
+                            } else {
+                                // Fallback text cleaning
+                                cleanName = a.textContent.replace(/Completed/g, '').split(/[·•]/)[0].trim();
+                            }
+                            
+                            // Check for completed status
+                            let isCompleted = false;
+                            if (a.textContent.includes("Completed")) {
+                                isCompleted = true;
+                            } else if (a.querySelector('[data-testid="learn-item-success-icon"]')) {
+                                isCompleted = true;
+                            } else {
+                                const svgEl = a.querySelector('svg');
+                                if (svgEl) {
+                                    // Evaluate accessibility properties cleanly across structural attributes
+                                    const ariaLabel = svgEl.getAttribute('aria-label') || '';
+                                    const hasSuccessClass = svgEl.classList.contains('css-1cdzuc5');
+                                    
+                                    if (ariaLabel.toLowerCase().includes('completed') || hasSuccessClass) {
+                                        isCompleted = true;
+                                    }
+                                }
+                            }
+                            
+                            if (!items.some(it => it.id === item_id)) {
+                                items.push({
+                                    id: item_id,
+                                    type: type_map[raw_type] || "reading",
+                                    name: cleanName || item_id,
+                                    module_name: mName,
+                                    is_completed: isCompleted
+                                });
+                            }
+                        }
+                    });
+                    return items;
+                }''', {"courseId": args.course_id, "mIdx": m_idx})
+                
+                if not extracted_nodes:
+                    print(f"[ENGINE] No syllabus nodes found in module {m_idx}. Stopping module scan.")
+                    break
+                    
+                module_added_count = 0
+                for item in extracted_nodes:
+                    if item["id"] not in extracted_ids:
+                        syllabus.append(SyllabusNode(**item))
+                        extracted_ids.add(item["id"])
+                        module_added_count += 1
+                print(f"[ENGINE] Extracted {len(extracted_nodes)} nodes ({module_added_count} new) in module {m_idx}")
+                
+                if module_added_count == 0:
+                    print(f"[ENGINE] No new nodes found. Stopping module scan early.")
+                    break
+                
+            print(f"[ENGINE] Total course syllabus items extracted: {len(syllabus)}")
+            
+            # Save initial course state
+            db.save_course_state(args.course_id, None, [], [n.model_dump() for n in syllabus])
+            
+            # Refresh course state reference post scan
+            course_state = db.get_course_state(args.course_id)
+        
+        # Load existing completed nodes from database if present
+        completed_nodes = []
+        if course_state and course_state.get("completed_nodes"):
+            completed_nodes = course_state["completed_nodes"]
+            
+        if not cached_loaded:
+            # Synchronize completed nodes using Coursera's live syllabus state as the source of truth
+            syllabus_completed_ids = {n.id for n in syllabus if n.is_completed}
+            syllabus_all_ids = {n.id for n in syllabus}
+            
+            for node_id in syllabus_completed_ids:
+                if node_id not in completed_nodes:
+                    completed_nodes.append(node_id)
+            print(f"[ENGINE] Synchronized completed nodes from live Coursera state. Total completed: {len(completed_nodes)}")
+            
+            # Keep any historical completed nodes from DB that are not in the currently scanned syllabus
+            if course_state and course_state.get("completed_nodes"):
+                for node_id in course_state["completed_nodes"]:
+                    if node_id not in syllabus_all_ids and node_id not in completed_nodes:
+                        completed_nodes.append(node_id)
+                        print(f"[ENGINE] Retaining historical completed node from DB: {node_id}")
+        else:
+            print(f"[ENGINE] Using cached completed nodes history. Total completed: {len(completed_nodes)}")
+            
         # Save initial course state with combined completed nodes
         db.save_course_state(args.course_id, None, completed_nodes, [n.model_dump() for n in syllabus])
         
@@ -905,7 +1120,7 @@ def main():
             # Update current active node in SQLite
             db.save_course_state(args.course_id, node.id, completed_nodes, [n.model_dump() for n in syllabus])
             
-            success = process_syllabus_node(hpage, node, api_key, args.ai_model, webhook_url, db, args.course_id)
+            success = process_syllabus_node_with_solver(hpage, node, api_key, ai_model, webhook_url, db, args.course_id, syllabus)
             if success:
                 completed_nodes.append(node.id)
                 print(f"[ENGINE] Node {node.name or node.id} completed successfully and added to DB progress.")
