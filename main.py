@@ -24,7 +24,7 @@ env_path = os.path.join(app_root, ".env")
 load_dotenv(dotenv_path=env_path)
 from project_accce.stealth.browser import launch_stealth_browser
 from project_accce.behavior.page import HumanizedPage
-from project_accce.behavior.math_utils import poisson_sleep
+from project_accce.behavior.math_utils import poisson_sleep, set_speed_factor, get_speed_factor
 from project_accce.cognitive.quiz import extract_quiz_payloads, solve_quiz_with_gemini, check_checkbox_safely_scoped
 from project_accce.cognitive.lab import setup_lab_interceptor, WebSocketLabClient, run_closed_loop_lab_agent
 from project_accce.orchestrator.db import ACCCEStorage
@@ -32,6 +32,10 @@ from project_accce.orchestrator.notifier import send_discord_notification
 from project_accce.orchestrator.scheduler import run_gradebook_polling_cycle
 from project_accce.schemas import SyllabusNode
 from project_accce.layout import fetch_layout_map, get_selector
+
+def scaled_sleep(seconds: float) -> None:
+    """Sleep for `seconds` scaled by the global speed factor. Minimum 0.1 s."""
+    time.sleep(max(0.1, seconds * get_speed_factor()))
 
 def verify_node_completed_on_page(hpage: HumanizedPage, node_id: str, timeout_sec: int = 15) -> bool:
     print(f"[ENGINE] Verifying completion status for node {node_id} on page...")
@@ -60,7 +64,7 @@ def verify_node_completed_on_page(hpage: HumanizedPage, node_id: str, timeout_se
         if is_completed:
             print(f"[ENGINE] Verification SUCCESS: Node {node_id} is marked as completed on Coursera!")
             return True
-        time.sleep(1)
+        scaled_sleep(1)
     return False
 
 def handle_active_modal(hpage: HumanizedPage) -> bool:
@@ -105,7 +109,7 @@ def handle_active_modal(hpage: HumanizedPage) -> bool:
             if active_modal.locator(sel).count() > 0 and active_modal.locator(sel).first.is_visible():
                 print(f"[ENGINE] Found checkbox '{sel}' inside modal. Checking safely...")
                 check_checkbox_safely_scoped(active_modal, sel)
-                time.sleep(1)
+                scaled_sleep(1)
                 break
         except Exception as e:
             print(f"[ENGINE] Error checking checkbox inside modal: {e}")
@@ -151,7 +155,7 @@ def handle_active_modal(hpage: HumanizedPage) -> bool:
             print(f"[ENGINE] Error clicking modal button '{sel}': {e}")
             
     if confirm_clicked:
-        time.sleep(3)
+        scaled_sleep(3)
         return True
     return False
 
@@ -180,7 +184,7 @@ def process_syllabus_node_with_solver(
     hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
     
     # Allow layout stabilization
-    time.sleep(2)
+    scaled_sleep(2)
     current_url = hpage.page.url
 
     # Check for unauthorized redirect signature patterns
@@ -328,7 +332,7 @@ def process_syllabus_node_core(
                         hpage.humanized_click(btn_sel)
                         print(f"[ENGINE] Clicked completion button '{btn_sel}' (attempt {attempt + 1}).")
                         clicked = True
-                        time.sleep(3)
+                        scaled_sleep(3)
                 except Exception:
                     pass
 
@@ -337,7 +341,7 @@ def process_syllabus_node_core(
                     poisson_sleep(5.0)
                 else:
                     if not video_found:
-                        time.sleep(4)  # Let video play remaining seconds to trigger 'ended' event
+                        scaled_sleep(4)  # Let video play remaining seconds to trigger 'ended' event
 
                 # Verify via current page sidebar
                 if verify_node_completed_on_page(hpage, node.id):
@@ -348,16 +352,16 @@ def process_syllabus_node_core(
                 module_url = f"https://www.coursera.org/learn/{course_id}/home/module/{module_num}"
                 try:
                     hpage.humanized_goto(module_url)
-                    time.sleep(3)
+                    scaled_sleep(3)
                     if verify_node_completed_on_page(hpage, node.id):
                         return True
                     # Navigate back to the item page and retry
                     hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
-                    time.sleep(4)
+                    scaled_sleep(4)
                 except Exception as nav_err:
                     print(f"[ENGINE] Module page nav failed: {nav_err}")
                     hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
-                    time.sleep(4)
+                    scaled_sleep(4)
             except Exception as e:
                 print(f"[ENGINE] Video player error: {e}. Falling back to page stay delay.")
                 poisson_sleep(5.0)
@@ -393,14 +397,14 @@ def process_syllabus_node_core(
                             hpage.humanized_click(btn_sel)
                             print(f"[ENGINE] Clicked completion button '{btn_sel}' (attempt {attempt + 1}).")
                             clicked = True
-                            time.sleep(3)
+                            scaled_sleep(3)
                             break
                     except Exception:
                         continue
                 
                 if not clicked:
                     print("[ENGINE] No visible completion button found. Staying on page for auto-completion...")
-                    time.sleep(5)
+                    scaled_sleep(5)
                 
                 # Verify via current page sidebar first
                 if verify_node_completed_on_page(hpage, node.id):
@@ -411,21 +415,21 @@ def process_syllabus_node_core(
                 module_url = f"https://www.coursera.org/learn/{course_id}/home/module/{module_num}"
                 try:
                     hpage.humanized_goto(module_url)
-                    time.sleep(3)
+                    scaled_sleep(3)
                     if verify_node_completed_on_page(hpage, node.id):
                         return True
                     # Navigate back to the item page and retry
                     hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
-                    time.sleep(4)
+                    scaled_sleep(4)
                     hpage.humanized_scroll()
-                    time.sleep(2)
+                    scaled_sleep(2)
                 except Exception as nav_err:
                     print(f"[ENGINE] Module page nav failed: {nav_err}")
                     hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
-                    time.sleep(4)
+                    scaled_sleep(4)
             except Exception as e:
                 print(f"[ENGINE] Reading error: {e}. Retrying...")
-                time.sleep(3)
+                scaled_sleep(3)
         
         # No fallback to success; we must strictly verify completion.
         print(f"[ENGINE] Could not verify reading completion for {node.id} — returning False to halt traversal.")
@@ -439,7 +443,7 @@ def process_syllabus_node_core(
             
             # Navigate/ensure we are on the item page
             hpage.humanized_goto(f"https://www.coursera.org/learn/{course_id}/item/{node.id}")
-            time.sleep(4)
+            scaled_sleep(4)
             
             # SPA client-side routing sync fallback:
             # If the page does not render the quiz start button or quiz container after page load,
@@ -452,11 +456,11 @@ def process_syllabus_node_core(
                     print(f"[ENGINE] SPA Router Desync Detected. Clicking sidebar link {sidebar_selector} to force transition...")
                     try:
                         hpage.humanized_click(sidebar_selector)
-                        time.sleep(4)
+                        scaled_sleep(4)
                     except Exception as click_err:
                         print(f"[ENGINE] Sidebar click fallback error: {click_err}")
             
-            time.sleep(2)
+            scaled_sleep(2)
             
             # Scroll down to make sure the start button renders
             hpage.page.evaluate('''() => {
@@ -466,7 +470,7 @@ def process_syllabus_node_core(
                     mainContent.scrollTo(0, mainContent.scrollHeight);
                 }
             }''')
-            time.sleep(2)
+            scaled_sleep(2)
             
             quiz_loaded = False
             clicked_start = False
@@ -482,7 +486,7 @@ def process_syllabus_node_core(
                 # 1. Proactive modal check: if a modal is already open on page load, handle it first
                 if handle_active_modal(hpage):
                     print("[ENGINE] Active modal dismissed proactively. Checking for quiz container...")
-                    time.sleep(2)
+                    scaled_sleep(2)
                     if hpage.page.locator(quiz_form_sel).count() > 0:
                         print("[ENGINE] Quiz form loaded after proactive modal dismissal.")
                         quiz_loaded = True
@@ -496,7 +500,7 @@ def process_syllabus_node_core(
                         is_disabled = loc.first.evaluate("el => el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')")
                         if is_disabled:
                             print(f"[ENGINE] Start button found but still loading/disabled. Waiting...")
-                            time.sleep(1)
+                            scaled_sleep(1)
                             continue
                     except Exception:
                         pass
@@ -511,13 +515,13 @@ def process_syllabus_node_core(
                     clicked_start = True
                     # Wait up to 8 seconds for quiz form to appear after start click
                     for _ in range(8):
-                        time.sleep(1)
+                        scaled_sleep(1)
                         if hpage.page.locator(quiz_form_sel).count() > 0:
                             print("[ENGINE] Quiz form loaded after clicking start/resume.")
                             quiz_loaded = True
                             break
                     break
-                time.sleep(1)
+                scaled_sleep(1)
                 
             if not quiz_loaded:
                 # Save screenshot for debugging
@@ -532,7 +536,7 @@ def process_syllabus_node_core(
                 print("[ENGINE] Start clicked but quiz not loaded. Checking for modal dialogs...")
                 if handle_active_modal(hpage):
                     print("[ENGINE] Active modal dismissed reactively. Checking for quiz container...")
-                    time.sleep(2)
+                    scaled_sleep(2)
                     if hpage.page.locator(quiz_form_sel).count() > 0:
                         print("[ENGINE] Quiz form loaded after reactive modal dismissal.")
                         quiz_loaded = True
@@ -544,7 +548,7 @@ def process_syllabus_node_core(
                 hpage.page.wait_for_selector(quiz_form_sel, timeout=15000)
                 print("[ENGINE] Quiz form loaded.")
                 print("[ENGINE] Waiting 3 seconds for React questions and option inputs to stabilize...")
-                time.sleep(3)
+                scaled_sleep(3)
             except Exception:
                 print("[ENGINE] Warning: Quiz form not detected.")
                 
@@ -591,11 +595,11 @@ def process_syllabus_node_core(
                     print("[ENGINE] Polling sidebar status taking longer. Reloading page to force state update...")
                     try:
                         hpage.humanized_goto(hpage.page.url)
-                        time.sleep(2)
+                        scaled_sleep(2)
                     except Exception as re_err:
                         print(f"[ENGINE] Reload/Goto failed: {re_err}")
                 else:
-                    time.sleep(1)
+                    scaled_sleep(1)
                 
                 status_text = hpage.page.evaluate('''(nodeId) => {
                     const link = document.querySelector(`a[href*="${nodeId}"]`);
@@ -660,7 +664,7 @@ def process_syllabus_node_core(
                     break
             if found_launch_sel:
                 break
-            time.sleep(1)
+            scaled_sleep(1)
             
         if found_launch_sel:
             print(f"[ENGINE] Found lab launch button: '{found_launch_sel}'. Clicking...")
@@ -677,7 +681,7 @@ def process_syllabus_node_core(
                     print("[ENGINE] Lab did not open in new page. Staying on main page.")
                     landing_page = hpage.page
                 
-                time.sleep(8)
+                scaled_sleep(8)
                 
                 # Check for "Mark as completed" button on the landing page
                 mark_selector = "button:has-text('Mark as completed'), button:has-text('Mark as Completed')"
@@ -686,10 +690,10 @@ def process_syllabus_node_core(
                         print("[ENGINE] Found 'Mark as completed' button. Clicking...")
                         landing_page.locator(mark_selector).first.scroll_into_view_if_needed()
                         landing_page.locator(mark_selector).first.click()
-                        time.sleep(5)
+                        scaled_sleep(5)
                         print("[ENGINE] Successfully completed lab via 'Mark as completed' button.")
                         return True
-                    time.sleep(1)
+                    scaled_sleep(1)
                     
                 print("[ENGINE] No 'Mark as completed' button found. Attempting inline fallback...")
                 return True
@@ -799,6 +803,8 @@ def main():
     parser.add_argument("--module", type=int, default=None, help="Specific module number to complete")
     parser.add_argument("--force-rescan", action="store_true", help="Force rescan syllabus instead of loading from cache")
     parser.add_argument("--gui", action="store_true", help="Running inside PyWebView GUI wrapper")
+    parser.add_argument("--speed-factor", type=float, default=1.0,
+                        help="Speed multiplier: 1.0=Safe (human-like), 0.4=Balanced, 0.1=Turbo (max speed)")
     
     # Parse known args early to determine if we are running in GUI mode
     args, unknown = parser.parse_known_args()
@@ -842,7 +848,15 @@ def main():
     ai_model = args.ai_model
     if args.ai_model == "gemini-flash-latest" and "ai_model" in config_data:
         ai_model = config_data["ai_model"]
-    
+
+    # Apply speed factor globally — scales all time.sleep() / poisson_sleep() calls
+    speed_factor = args.speed_factor
+    set_speed_factor(speed_factor)
+    speed_label = {1.0: "Safe (Human-Like)", 0.4: "Balanced", 0.1: "Turbo"}.get(
+        round(speed_factor, 1), f"Custom ({speed_factor}x)"
+    )
+    print(f"[ENGINE] Completion speed mode: {speed_label} (factor={speed_factor})")
+
     if args.mode == "poll":
         # Cron gradebook polling mode
         run_gradebook_polling_cycle(args.db_path, webhook_url)

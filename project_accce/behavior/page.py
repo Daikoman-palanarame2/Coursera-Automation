@@ -2,7 +2,7 @@ import random
 import time
 from playwright.sync_api import Page, ElementHandle
 from project_accce.behavior.mouse import move_mouse_humanized
-from project_accce.behavior.math_utils import poisson_sleep, get_poisson_delay
+from project_accce.behavior.math_utils import poisson_sleep, get_poisson_delay, get_speed_factor
 
 # Typo neighbor mapping for realistic typing simulation
 _NEIGHBOR_KEYS = {
@@ -53,7 +53,7 @@ class HumanizedPage:
         
         # Click sequence
         self.page.mouse.down()
-        time.sleep(random.uniform(0.05, 0.15))  # Hold button down briefly
+        time.sleep(random.uniform(0.05, 0.15) * get_speed_factor())  # Hold button down briefly
         self.page.mouse.up()
 
     def humanized_type(self, selector: str, text: str, typo_chance: float = 0.05):
@@ -72,19 +72,19 @@ class HumanizedPage:
                 
                 # Type the incorrect char
                 self.page.keyboard.type(typo_char)
-                time.sleep(random.uniform(0.08, 0.18))
+                time.sleep(random.uniform(0.08, 0.18) * get_speed_factor())
                 
                 # Realize the typo: slight pause
-                time.sleep(random.uniform(0.15, 0.35))
+                time.sleep(random.uniform(0.15, 0.35) * get_speed_factor())
                 
                 # Backspace it
                 self.page.keyboard.press("Backspace")
-                time.sleep(random.uniform(0.05, 0.12))
+                time.sleep(random.uniform(0.05, 0.12) * get_speed_factor())
                 
             # Type the correct char
             self.page.keyboard.type(char)
             # Delay between keystrokes modeled on human typing velocity
-            time.sleep(random.uniform(0.05, 0.25))
+            time.sleep(random.uniform(0.05, 0.25) * get_speed_factor())
 
     def humanized_scroll(self, distance: int = None, steps: int = 10):
         """
@@ -136,7 +136,7 @@ class HumanizedPage:
                 print(f"[ENGINE] Navigation attempt {attempt+1} failed: {e}")
                 if attempt < 3:
                     print("[ENGINE] Retrying in 3s...")
-                    time.sleep(3)
+                    time.sleep(3 * get_speed_factor())
                 else:
                     print("[ENGINE] Falling back to 'commit' wait strategy (stops waiting after header transfer)...")
                     try:

@@ -179,7 +179,7 @@ class ACCCEBackend:
     
     # ── Bot Control ──
     
-    def start_bot(self, course_url: str, headless: bool = False, module: int = None, force_rescan: bool = False) -> dict:
+    def start_bot(self, course_url: str, headless: bool = False, module: int = None, force_rescan: bool = False, speed_factor: float = 1.0) -> dict:
         """Start the ACCCE bot as a subprocess."""
         if self._bot_process and self._bot_process.poll() is None:
             return {"success": False, "error": "Bot is already running."}
@@ -263,6 +263,7 @@ class ACCCEBackend:
             cmd.extend(["--module", str(module)])
         if force_rescan:
             cmd.append("--force-rescan")
+        cmd.extend(["--speed-factor", str(float(speed_factor))])
         cmd.append("--gui")
         
         try:
