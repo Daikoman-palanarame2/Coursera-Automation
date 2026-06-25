@@ -1,21 +1,36 @@
 import os
 import sys
+
+# Hide the console window immediately on startup in frozen mode
+if getattr(sys, 'frozen', False) and os.name == 'nt':
+    import ctypes
+    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    if hwnd:
+        ctypes.windll.user32.ShowWindow(hwnd, 0) # SW_HIDE
+
+
+# Ensure the application directory is in Python's search path
+app_dir = os.path.dirname(os.path.abspath(__file__))
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
+os.chdir(app_dir)
+
 import threading
+import importlib.util
 import webview
 import main
 
-# Ensure we're running from the correct directory
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
-from gui_backend import ACCCEBackend
+# Always load gui_backend.py from the filesystem (not the compiled archive)
+# so that hot-deploying gui_backend.py via deploy.bat takes effect immediately.
+_backend_file = os.path.join(app_dir, "gui_backend.py")
+_spec = importlib.util.spec_from_file_location("gui_backend", _backend_file)
+_gui_backend_mod = importlib.util.module_from_spec(_spec)
+sys.modules["gui_backend"] = _gui_backend_mod
+_spec.loader.exec_module(_gui_backend_mod)
+ACCCEBackend = _gui_backend_mod.ACCCEBackend
 
 # System tray support
-try:
-    from pystray import Icon, Menu, MenuItem
-    from PIL import Image, ImageDraw
-    HAS_TRAY = True
-except ImportError:
-    HAS_TRAY = False
+HAS_TRAY = False
 
 
 class ACCCEApp:
@@ -111,6 +126,7 @@ class ACCCEApp:
             background_color="#0b0f19",
             confirm_close=True,
         )
+        self.backend.set_window(self.window)
         
         self.window.events.closing += self._on_closing
         self.window.events.closed += self._on_closed
