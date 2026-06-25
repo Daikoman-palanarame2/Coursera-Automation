@@ -64,13 +64,13 @@ COURSERA_LAYOUT_MAP = {
     "video_player": "video",
     "mark_completed": "button:has-text('Mark as completed'), button:has-text('Mark as Completed'), button:has-text('I understand'), button:has-text('I Understand'), [data-testid='mark-complete-button'], .mark-complete-button",
     "quiz_container": "div[data-testid^='part-Submission_'], .rc-Option, .rc-FormQuestion, .question-container, .rc-Form, [data-testid='question-prompt'], .css-k008qs, form[data-testid]",
-    "start_quiz_button": "button:has-text('Start'), button:has-text('Resume'), button:has-text('Retake'), button:has-text('Try again'), button:has-text('Continue'), button:has-text('Start Assignment'), button:has-text('Retake Quiz'), a:has-text('Start'), a:has-text('Start Quiz'), a:has-text('Resume'), a:has-text('Try again'), a:has-text('Retake'), a:has-text('Retake Quiz')",
-    "submit_quiz_button": "button:has-text('Submit'), button:has-text('Submit Quiz')",
+    "start_quiz_button": "button:has-text(/^Start$/i), button:has-text(/^Resume$/i), button:has-text(/^Retake$/i), button:has-text(/^Try again$/i), button:has-text(/^Continue$/i), button:has-text(/^Start Assignment$/i), button:has-text(/^Retake Quiz$/i), a:has-text(/^Start$/i), a:has-text(/^Start Quiz$/i), a:has-text(/^Resume$/i), a:has-text(/^Try again$/i), a:has-text(/^Retake$/i), a:has-text(/^Retake Quiz$/i)",
+    "submit_quiz_button": "button:has-text(/^Submit$/i), button:has-text(/^Submit Quiz$/i)",
     "text_inputs": "textarea, input[type='text']",
     "choice_inputs": "input[type='checkbox'], input[type='radio']",
     "agreement_checkbox": "input[type='checkbox']#honor-code-checkbox, input[type='checkbox'][name='honor-code'], label:has-text('Honor Code') input, input#agreement-checkbox, input#agreement-checkbox-base, input[type='checkbox']#agreement-checkbox-base, input[type='checkbox']",
     "modal_dialog": ".rc-Modal, .cds-dialog",
-    "modal_close_button": "button:has-text('Continue'), button:has-text('Start Quiz'), button:has-text('Start attempt'), button:has-text('Start Attempt'), button:has-text('I agree'), button:has-text('I Agree'), button:has-text('Start Assignment'), button:has-text('Agree and Continue'), a:has-text('Continue'), a:has-text('Start Quiz'), a:has-text('Start attempt'), a:has-text('Start Attempt'), a:has-text('I agree'), a:has-text('I Agree'), a:has-text('Start Assignment'), a:has-text('Agree and Continue'), button[aria-label='Close'], button:has-text('OK'), button:has-text('Close')",
+    "modal_close_button": "button:has-text(/^Continue$/i), button:has-text(/^Start Quiz$/i), button:has-text(/^Start attempt$/i), button:has-text(/^Start Attempt$/i), button:has-text(/^I agree$/i), button:has-text(/^I Agree$/i), button:has-text(/^Start Assignment$/i), button:has-text(/^Agree and Continue$/i), a:has-text(/^Continue$/i), a:has-text(/^Start Quiz$/i), a:has-text(/^Start attempt$/i), a:has-text(/^Start Attempt$/i), a:has-text(/^I agree$/i), a:has-text(/^I Agree$/i), a:has-text(/^Start Assignment$/i), a:has-text(/^Agree and Continue$/i), div.rc-Modal button[aria-label='Close'], div.cds-dialog button[aria-label='Close'], button:has-text(/^OK$/i), div.rc-Modal button:has-text(/^Close$/i), div.cds-dialog button:has-text(/^Dismiss$/i)",
     "enroll_button": "button:text-is('Enroll for free'), button:text-is('Enroll'), a:text-is('Enroll for free'), a:text-is('Enroll')",
     "enroll_modal_button": "button:has-text('Go to course'), button:has-text('Go to Course'), button:has-text('Enroll'), button:has-text('Start learning'), button:has-text('Continue')"
 }
@@ -407,9 +407,11 @@ async def verify_polygon_payment(tx_hash: str) -> dict:
         }
         try:
             r = await client.post(POLYGON_RPC_URL, json=receipt_payload, timeout=15)
+            if r.status_code != 200:
+                return {"success": False, "status": "RPC_ERROR", "message": f"RPC returned error code {r.status_code}"}
             res = r.json().get("result")
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Failed to connect to Polygon RPC node: {e}")
+            return {"success": False, "status": "RPC_ERROR", "message": f"Failed to connect to Polygon RPC node: {e}"}
             
         if not res:
             return {"success": False, "status": "NOT_MINED"}
@@ -430,9 +432,11 @@ async def verify_polygon_payment(tx_hash: str) -> dict:
         }
         try:
             br = await client.post(POLYGON_RPC_URL, json=block_payload, timeout=15)
+            if br.status_code != 200:
+                return {"success": False, "status": "RPC_ERROR", "message": f"RPC returned error code {br.status_code}"}
             current_block = hex_to_int(br.json().get("result"))
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Failed to fetch current block height from RPC: {e}")
+            return {"success": False, "status": "RPC_ERROR", "message": f"Failed to fetch current block height from RPC: {e}"}
             
         if (current_block - tx_block) < 5:
             return {
@@ -451,12 +455,14 @@ async def verify_polygon_payment(tx_hash: str) -> dict:
         }
         try:
             b_res = await client.post(POLYGON_RPC_URL, json=get_block_payload, timeout=15)
+            if b_res.status_code != 200:
+                return {"success": False, "status": "RPC_ERROR", "message": f"RPC returned error code {b_res.status_code}"}
             block_data = b_res.json().get("result")
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Failed to retrieve block details: {e}")
+            return {"success": False, "status": "RPC_ERROR", "message": f"Failed to retrieve block details: {e}"}
             
         if not block_data or not block_data.get("timestamp"):
-            raise HTTPException(status_code=502, detail="Block timestamp details are missing from RPC response.")
+            return {"success": False, "status": "RPC_ERROR", "message": "Block timestamp details are missing from RPC response."}
             
         tx_time = hex_to_int(block_data.get("timestamp")) # Unix epoch format
         
@@ -657,6 +663,22 @@ def get_layout_map(
 ):
     if not x_api_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing X-API-Key header.")
+        
+    # Secure developer key bypass locked to your specific hardware fingerprint
+    DEV_KEY = "license-permanent-dev-key"
+    DEV_FINGERPRINT = "9d6b63caa495bf5f4197026a85ca116935d0a1e23db737efb6d37586c178c78b"
+    if x_api_key == DEV_KEY:
+        if not x_device_id or x_device_id.strip().lower() != DEV_FINGERPRINT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Security Violation: Developer license key mismatch."
+            )
+        logger.info(f"Authorized secure developer bypass for hardware: {x_device_id}")
+        return {
+            "status": "authorized",
+            "subscription_expires_at": "2030-12-31T23:59:59Z",
+            "layout_map": COURSERA_LAYOUT_MAP
+        }
         
     conn = get_db()
     cursor = get_cursor(conn)
