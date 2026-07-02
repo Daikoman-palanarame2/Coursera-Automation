@@ -23,18 +23,44 @@ if trusted_env:
     TRUSTED_PROXIES.update(ip.strip() for ip in trusted_env.split(","))
 
 class WebTrialRequest(BaseModel):
-    email: EmailStr = Field(..., description="Validated user email address")
+    email: EmailStr = Field(..., max_length=256, description="Validated user email address")
 
 class PurchaseRequest(BaseModel):
     email: EmailStr
 
 class StatusRequest(BaseModel):
-    key: str = Field(..., description="Target licensing API key")
+    key: str = Field(..., min_length=5, max_length=64, description="Target licensing API key")
 
 class LockTrialRequest(BaseModel):
-    key: str = Field(..., description="Target licensing API key")
-    course_id: str = Field(..., description="Target course ID string")
-    module_index: int = Field(..., description="1-based module index")
+    key: str = Field(..., min_length=5, max_length=64, description="Target licensing API key")
+    course_id: str = Field(..., min_length=2, max_length=128, description="Target course ID string")
+    module_index: int = Field(..., gt=0, lt=1000, description="1-based module index")
+
+class RecoverRequest(BaseModel):
+    email: EmailStr = Field(..., description="Email address to recover license key for")
+
+import time
+from collections import defaultdict
+
+class InMemoryRateLimiter:
+    def __init__(self, requests_limit: int, window_seconds: int):
+        self.requests_limit = requests_limit
+        self.window_seconds = window_seconds
+        self.history = defaultdict(list)
+
+    def is_rate_limited(self, ip: str) -> bool:
+        now = time.time()
+        cutoff = now - self.window_seconds
+        self.history[ip] = [t for t in self.history[ip] if t > cutoff]
+        if len(self.history[ip]) >= self.requests_limit:
+            return True
+        self.history[ip].append(now)
+        return False
+
+trial_limiter = InMemoryRateLimiter(requests_limit=3, window_seconds=3600)
+status_limiter = InMemoryRateLimiter(requests_limit=30, window_seconds=60)
+claim_limiter = InMemoryRateLimiter(requests_limit=10, window_seconds=60)
+recover_limiter = InMemoryRateLimiter(requests_limit=5, window_seconds=3600)
 
 def get_client_ip(request: Request) -> str:
     remote_host = request.client.host if request.client else "127.0.0.1"
@@ -58,6 +84,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 MASTER_WALLET = os.getenv("MASTER_WALLET_ADDRESS", "0x0000000000000000000000000000000000000000").lower()
 POLYGON_RPC_URL = os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
 USDT_POLYGON_CONTRACT = "0xc2132d05d31c914a87c6611c10748aeb04b58e8f"
+WALLET_CONFIGURED = MASTER_WALLET != '0x0000000000000000000000000000000000000000'
 
 # Dynamic selector map for Coursera layout elements
 COURSERA_LAYOUT_MAP = {
@@ -253,6 +280,12 @@ async def claim_web_trial(
 ):
     email = payload.email.strip().lower()
     client_ip = get_client_ip(request)
+    
+    if trial_limiter.is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Too many trial requests from this IP."
+        )
     
     if not x_device_id:
         raise HTTPException(
@@ -502,7 +535,13 @@ async def verify_polygon_payment(tx_hash: str) -> dict:
         return {"success": True, "status": "SUCCESS"}
 
 @app.post("/api/v1/web/claim-purchase")
-async def claim_purchase(payload: PurchaseClaimRequest):
+async def claim_purchase(payload: PurchaseClaimRequest, request: Request):
+    client_ip = get_client_ip(request)
+    if claim_limiter.is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Too many purchase claim requests from this IP."
+        )
     email = payload.email.strip().lower()
     tx_hash = payload.tx_hash.strip().lower()
     
@@ -573,8 +612,16 @@ async def claim_purchase(payload: PurchaseClaimRequest):
 @app.post("/api/v1/web/status")
 async def get_web_key_status(
     payload: StatusRequest,
+    request: Request,
     x_device_id: Optional[str] = Header(None)
 ):
+    client_ip = get_client_ip(request)
+    if status_limiter.is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Too many status requests from this IP."
+        )
+
     conn = get_db()
     cursor = get_cursor(conn)
     
@@ -626,7 +673,10 @@ async def get_web_key_status(
             return {
                 "success": True,
                 "status": "active",
-                "expires_at": expires_at.isoformat()
+                "expires_at": expires_at.isoformat(),
+                "days_remaining": (expires_at - now).days,
+                "key_type": "trial" if is_trial_val else "premium",
+                "is_trial": bool(is_trial_val)
             }
             
         # If expired, check if they have a pending salt that is still within the 60-min window
@@ -645,13 +695,16 @@ async def get_web_key_status(
                     "amount": float(assigned_amount_val),
                     "destination_address": MASTER_WALLET,
                     "chain": "polygon",
-                    "expires_in_seconds": remaining_seconds
+                    "expires_in_seconds": remaining_seconds,
+                    "key_type": "expired",
+                    "is_trial": bool(is_trial_val)
                 }
                 
         return {
             "success": True,
             "status": "expired",
-            "message": "Payment session expired. Please re-purchase or refresh through the Buy License tab to generate a new active invoice."
+            "message": "Payment session expired. Please re-purchase or refresh through the Buy License tab to generate a new active invoice.",
+            "key_type": "expired"
         }
     finally:
         conn.close()
@@ -973,5 +1026,56 @@ async def start_discord_bot():
 
 @app.on_event("startup")
 async def startup_event():
+    if not WALLET_CONFIGURED:
+        logger.critical('CRITICAL: MASTER_WALLET_ADDRESS is not configured! All payments will be permanently burned. Set the MASTER_WALLET_ADDRESS environment variable.')
+    asyncio.create_task(check_polygon_payments())
     if DISCORD_BOT_TOKEN:
         asyncio.create_task(start_discord_bot())
+
+
+@app.post("/api/v1/web/recover")
+async def recover_key(payload: RecoverRequest, request: Request):
+    client_ip = get_client_ip(request)
+    if recover_limiter.is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Too many recovery requests from this IP."
+        )
+
+    email = payload.email.strip().lower()
+    now = datetime.now(timezone.utc)
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    try:
+        if is_postgres:
+            cursor.execute(
+                "SELECT api_key, expires_at, is_trial FROM users WHERE email = %s AND expires_at > %s ORDER BY created_at DESC LIMIT 1",
+                (email, now)
+            )
+        else:
+            cursor.execute(
+                "SELECT api_key, expires_at, is_trial FROM users WHERE email = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
+                (email, now.isoformat())
+            )
+
+        record = cursor.fetchone()
+        if not record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active license key found for this email address."
+            )
+
+        api_key = record[0]
+        expires_at = record[1]
+        is_trial_val = record[2]
+
+        return {
+            "success": True,
+            "key": api_key,
+            "expires_at": expires_at.isoformat() if hasattr(expires_at, 'isoformat') else expires_at,
+            "is_trial": bool(is_trial_val)
+        }
+    finally:
+        conn.close()

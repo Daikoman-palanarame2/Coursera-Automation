@@ -424,6 +424,273 @@
         .footer a:hover {
             text-decoration: underline;
         }
+
+        /* #6 — Visual 3-step progress indicator */
+        .stepper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            margin-bottom: 2rem;
+            padding: 0 0.5rem;
+        }
+        .stepper-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.4rem;
+            position: relative;
+            z-index: 1;
+        }
+        .stepper-circle {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.06);
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            transition: all 0.3s;
+        }
+        .stepper-step.active .stepper-circle {
+            background: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%);
+            border-color: var(--accent-blue);
+            color: #fff;
+            box-shadow: 0 0 12px rgba(0, 242, 254, 0.3);
+        }
+        .stepper-step.completed .stepper-circle {
+            background: var(--accent-green);
+            border-color: var(--accent-green);
+            color: #080710;
+            box-shadow: 0 0 10px rgba(0, 255, 135, 0.25);
+        }
+        .stepper-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .stepper-step.active .stepper-label {
+            color: var(--accent-blue);
+        }
+        .stepper-step.completed .stepper-label {
+            color: var(--accent-green);
+        }
+        .stepper-line {
+            flex: 1;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.1);
+            min-width: 40px;
+            margin: 0 0.3rem;
+            margin-bottom: 1.4rem;
+        }
+        .stepper-line.completed {
+            background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-blue) 100%);
+        }
+
+        /* #16 — USDT Tooltip */
+        .tooltip-trigger {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+            color: var(--accent-blue);
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-left: 0.3rem;
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            text-align: center;
+            line-height: 14px;
+            vertical-align: middle;
+        }
+        .tooltip-trigger .tooltip-text {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            bottom: 130%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.92);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0.7rem 0.9rem;
+            font-size: 0.78rem;
+            font-weight: 400;
+            line-height: 1.4;
+            width: 240px;
+            z-index: 20;
+            transition: opacity 0.25s, visibility 0.25s;
+            pointer-events: none;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        .tooltip-trigger .tooltip-text::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(0, 0, 0, 0.92) transparent transparent transparent;
+        }
+        .tooltip-trigger:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* #4 — Collapsible accordion */
+        .tx-guide {
+            margin-top: 0.8rem;
+            margin-bottom: 0;
+        }
+        .tx-guide summary {
+            cursor: pointer;
+            color: var(--accent-blue);
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.5rem 0;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: color 0.2s;
+        }
+        .tx-guide summary::-webkit-details-marker { display: none; }
+        .tx-guide summary::before {
+            content: '▸';
+            font-size: 0.85rem;
+            transition: transform 0.2s;
+        }
+        .tx-guide[open] summary::before {
+            transform: rotate(90deg);
+        }
+        .tx-guide summary:hover {
+            color: var(--text-primary);
+        }
+        .tx-guide-content {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0.8rem 1rem;
+            margin-top: 0.3rem;
+            font-size: 0.78rem;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+        .tx-guide-content strong {
+            color: var(--text-primary);
+            display: block;
+            margin-top: 0.5rem;
+        }
+        .tx-guide-content strong:first-child {
+            margin-top: 0;
+        }
+
+        /* #5 — Fiat on-ramp info box */
+        .info-box {
+            background: rgba(79, 172, 254, 0.08);
+            border: 1px solid rgba(79, 172, 254, 0.2);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+        }
+        .info-box strong {
+            color: var(--accent-blue);
+            display: block;
+            margin-bottom: 0.3rem;
+        }
+        .info-box a {
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .info-box a:hover {
+            text-decoration: underline;
+        }
+
+        /* #9 — EIP-681 mobile deep link button */
+        .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--accent-purple);
+            border-radius: 12px;
+            padding: 0.8rem;
+            color: var(--accent-purple);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            margin-top: 1rem;
+        }
+        .btn-outline:hover {
+            background: rgba(79, 172, 254, 0.1);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        /* #8 — Confetti animation */
+        @keyframes confettiFall {
+            0% { transform: translateY(-100%) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(600px) rotate(720deg); opacity: 0; }
+        }
+        .confetti-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .confetti-piece {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            top: -10px;
+            border-radius: 2px;
+            animation: confettiFall 2.5s ease-in forwards;
+        }
+
+        /* #17 — Mobile responsive fixes */
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            .portal-card {
+                padding: 1.5rem;
+            }
+            .manual-pay-layout {
+                flex-direction: column !important;
+            }
+            .stepper-label {
+                font-size: 0.6rem;
+            }
+            .stepper-circle {
+                width: 30px;
+                height: 30px;
+                font-size: 0.75rem;
+            }
+            .stepper-line {
+                min-width: 24px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -445,14 +712,31 @@
 
             <!-- Tab: Buy License -->
             <div id="tab-buy" class="tab-content active">
+                <!-- #6 — 3-Step Progress Indicator -->
+                <div class="stepper">
+                    <div class="stepper-step completed">
+                        <div class="stepper-circle">✓</div>
+                        <span class="stepper-label">Email</span>
+                    </div>
+                    <div class="stepper-line completed"></div>
+                    <div class="stepper-step active">
+                        <div class="stepper-circle">2</div>
+                        <span class="stepper-label">Pay</span>
+                    </div>
+                    <div class="stepper-line"></div>
+                    <div class="stepper-step">
+                        <div class="stepper-circle">3</div>
+                        <span class="stepper-label">Activate ✓</span>
+                    </div>
+                </div>
                 <div class="form-group">
                     <label for="buy-email">Email Address</label>
-                    <input type="email" id="buy-email" class="form-control" placeholder="user@example.com" required>
+                    <input type="email" id="buy-email" class="form-control" placeholder="user@example.com" required oninput="validateEmailForPay()">
                 </div>
 
                 <div style="margin-bottom: 1.5rem;">
                     <label style="display: block; color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px;">Option 1: Web3 Direct Checkout</label>
-                    <button type="button" class="btn-submit" id="btn-web3-pay" onclick="connectAndPay()">
+                    <button type="button" class="btn-submit" id="btn-web3-pay" onclick="connectAndPay()" disabled>
                         <span class="spinner" id="spinner-web3-pay"></span>
                         <span class="btn-text" id="btn-text-web3-pay">Connect Wallet & Pay 3.00 USDT</span>
                     </button>
@@ -471,14 +755,14 @@
 
                 <!-- Manual Payment Panel -->
                 <div id="manual-payment-panel" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem;">
-                    <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; justify-content: center;">
+                    <div class="manual-pay-layout" style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; justify-content: center;">
                         <div style="background: #fff; padding: 0.5rem; border-radius: 12px; display: inline-block;">
                             <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data={{MASTER_WALLET_ADDRESS}}" alt="QR Code" style="display: block; width: 120px; height: 120px;">
                         </div>
                         <div style="flex: 1; min-width: 200px;">
                             <div style="margin-bottom: 0.8rem;">
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.2rem;">Send Amount (Fixed)</div>
-                                <div style="font-size: 1.2rem; font-weight: 700; color: var(--accent-green);">3.00 USDT</div>
+                                <div style="font-size: 1.2rem; font-weight: 700; color: var(--accent-green);">3.00 USDT <span class="tooltip-trigger">?<span class="tooltip-text">USDT (Tether) is a stablecoin pegged 1:1 to the US Dollar. 3.00 USDT = $3.00 USD.</span></span></div>
                             </div>
                             <div style="margin-bottom: 0.8rem;">
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.2rem;">Network</div>
@@ -493,6 +777,16 @@
                             </div>
                         </div>
                     </div>
+                    <!-- #9 — EIP-681 Mobile Deep Link Button -->
+                    <a href="ethereum:0xc2132d05d31c914a87c6611c10748aeb04b58e8f@137/transfer?address={{MASTER_WALLET_ADDRESS}}&uint256=3000000" class="btn-outline" style="text-decoration: none;">
+                        📱 Open in Mobile Wallet
+                    </a>
+                </div>
+
+                <!-- #5 — Fiat On-Ramp Guidance -->
+                <div class="info-box">
+                    <strong>💡 Don't have USDT?</strong>
+                    Buy instantly with a debit card via <a href="https://www.moonpay.com" target="_blank" rel="noopener">MoonPay</a> or <a href="https://www.transak.com" target="_blank" rel="noopener">Transak</a>, sent directly to your wallet on the Polygon network.
                 </div>
 
                 <!-- TxHash Claim Form -->
@@ -500,6 +794,18 @@
                     <div class="form-group">
                         <label for="buy-tx-hash">Transaction Hash (TxHash)</label>
                         <input type="text" id="buy-tx-hash" class="form-control" placeholder="0x..." required>
+                        <!-- #4 — Collapsible Tx Hash Guide -->
+                        <details class="tx-guide">
+                            <summary>How to find your transaction hash?</summary>
+                            <div class="tx-guide-content">
+                                <strong>🦊 MetaMask:</strong>
+                                Go to Activity tab → Click the transaction → Copy Transaction ID
+                                <strong>🛡️ Trust Wallet:</strong>
+                                Go to transaction history → Tap the transaction → Copy TxHash
+                                <strong>🏦 Binance / Exchange:</strong>
+                                Go to Withdrawal History → Find the TxID column → Copy
+                            </div>
+                        </details>
                     </div>
                     <button type="submit" class="btn-submit" id="btn-verify-claim">
                         <span class="spinner" id="spinner-claim"></span>
@@ -531,6 +837,13 @@
                             <span id="buy-expiry-val"></span>
                         </div>
                     </div>
+                    <!-- #14 — PolygonScan Link Row -->
+                    <div class="data-row" id="buy-txscan-row" style="display: none;">
+                        <div class="data-label">Transaction</div>
+                        <div class="data-value">
+                            <a id="buy-txscan-link" href="#" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-weight: 600;">View on PolygonScan ↗</a>
+                        </div>
+                    </div>
                     <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 1rem; line-height: 1.4; text-align: center;">
                         Copy your Premium Key above and paste it into your ACCCE Desktop Application Setup Wizard or `.env` configuration file to unlock full capabilities.
                     </p>
@@ -558,6 +871,7 @@
 
         <div class="footer">
             <p>ACCCE Bot &copy; 2026. By Daimoaram</p>
+            <p style="margin-top: 0.4rem;">Having trouble? <a href="https://discord.gg/accce">Join our Discord</a> for support</p>
         </div>
     </div>
 
@@ -606,11 +920,31 @@
 
         function copyText(elementId) {
             const text = document.getElementById(elementId).textContent;
+            // Find the copy button that triggered this — walk up from elementId's sibling
+            const el = document.getElementById(elementId);
+            const copyBtn = el.parentElement ? el.parentElement.querySelector('.btn-copy') : null;
             navigator.clipboard.writeText(text).then(() => {
                 showToast("Copied to clipboard!");
+                // #15 — Green checkmark feedback
+                if (copyBtn) {
+                    const originalText = copyBtn.textContent;
+                    copyBtn.textContent = '✓ Copied';
+                    copyBtn.style.color = 'var(--accent-green)';
+                    setTimeout(() => {
+                        copyBtn.textContent = originalText;
+                        copyBtn.style.color = '';
+                    }, 1500);
+                }
             }).catch(() => {
                 showToast("Failed to copy.");
             });
+        }
+
+        // #7 — Disable Web3 pay button until valid email
+        function validateEmailForPay() {
+            const emailInput = document.getElementById('buy-email');
+            const payBtn = document.getElementById('btn-web3-pay');
+            payBtn.disabled = !emailInput.value.trim() || !emailInput.checkValidity();
         }
 
         function startCountdown(seconds, displayElementId) {
@@ -644,7 +978,7 @@
             const email = emailInput.value.trim();
 
             if (!window.ethereum) {
-                showToast("MetaMask or Web3 wallet is not installed.");
+                showToast("No Web3 wallet detected. Please install MetaMask or use the manual payment option below.");
                 return;
             }
 
@@ -714,7 +1048,7 @@
                 const tx = await usdtContract.transfer(destination, amount);
                 
                 payText.textContent = "Confirming...";
-                showToast("Transaction submitted! Awaiting signature/confirmation...");
+                showToast("Transaction submitted! Waiting for Polygon network confirmation (~12 sec)...");
                 
                 document.getElementById('buy-tx-hash').value = tx.hash;
                 showToast("Transaction hash retrieved! Verifying payment...");
@@ -725,11 +1059,22 @@
                 
             } catch (err) {
                 console.error(err);
-                showToast(err.reason || err.message || "Web3 Transaction Failed.");
+                // #10 — Contextual error messages
+                const msg = (err.message || err.reason || '').toLowerCase();
+                if (msg.includes('insufficient')) {
+                    showToast("Insufficient USDT balance. You need at least 3.00 USDT on Polygon.");
+                } else if (msg.includes('user rejected') || msg.includes('user denied') || err.code === 4001 || err.code === 'ACTION_REJECTED') {
+                    showToast("Transaction cancelled. No funds were sent.");
+                } else {
+                    showToast(err.reason || err.message || "Web3 Transaction Failed.");
+                }
             } finally {
-                payBtn.disabled = false;
-                spinner.style.display = 'none';
-                payText.textContent = "Connect Wallet & Pay 3.00 USDT";
+                const payBtnFinal = document.getElementById('btn-web3-pay');
+                payBtnFinal.disabled = false;
+                document.getElementById('spinner-web3-pay').style.display = 'none';
+                document.getElementById('btn-text-web3-pay').textContent = "Connect Wallet & Pay 3.00 USDT";
+                // Re-validate email to reset disabled state properly
+                validateEmailForPay();
             }
         }
 
@@ -779,9 +1124,10 @@
                     }
                     
                     if (data.status === "NOT_MINED") {
-                        btnText.textContent = `Awaiting Block Mining... (Polling)`;
+                        btnText.textContent = `Awaiting block mining... (usually under 5 seconds)`;
                     } else if (data.status === "PENDING_CONFIRMATIONS") {
-                        btnText.textContent = `Confirmations: ${data.current}/5 (Polling...)`;
+                        const secsLeft = (5 - (data.current || 0)) * 2;
+                        btnText.textContent = `Confirmations: ${data.current}/5 — ~${secsLeft} seconds remaining`;
                     }
                     
                     setTimeout(() => submitClaim(email, txHash), 7000);
@@ -796,7 +1142,21 @@
                 document.getElementById('buy-key-val').textContent = data.key;
                 const localExpiry = new Date(data.expires_at).toLocaleString();
                 document.getElementById('buy-expiry-val').textContent = localExpiry;
+
+                // #14 — PolygonScan link
+                const storedTxHash = document.getElementById('buy-tx-hash').value.trim();
+                if (storedTxHash) {
+                    const scanRow = document.getElementById('buy-txscan-row');
+                    const scanLink = document.getElementById('buy-txscan-link');
+                    scanLink.href = `https://polygonscan.com/tx/${storedTxHash}`;
+                    scanRow.style.display = 'block';
+                }
+
                 responseCard.style.display = 'block';
+
+                // #8 — Confetti celebration animation
+                triggerConfetti(responseCard);
+
                 showToast("License key claimed successfully!");
                 
                 verifyBtn.disabled = false;
@@ -852,6 +1212,32 @@
             }
         }
 
+        // #8 — Confetti celebration animation
+        function triggerConfetti(container) {
+            const confettiContainer = document.createElement('div');
+            confettiContainer.className = 'confetti-container';
+            container.style.position = 'relative';
+            container.appendChild(confettiContainer);
+
+            const colors = ['#00f2fe', '#4facfe', '#00ff87', '#ff9f43', '#ff3838', '#a855f7', '#f97316'];
+            for (let i = 0; i < 30; i++) {
+                const piece = document.createElement('div');
+                piece.className = 'confetti-piece';
+                piece.style.left = Math.random() * 100 + '%';
+                piece.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                piece.style.animationDelay = Math.random() * 1.2 + 's';
+                piece.style.animationDuration = (1.5 + Math.random() * 1.5) + 's';
+                piece.style.width = (5 + Math.random() * 6) + 'px';
+                piece.style.height = (5 + Math.random() * 6) + 'px';
+                confettiContainer.appendChild(piece);
+            }
+
+            // Clean up after animation completes
+            setTimeout(() => {
+                confettiContainer.remove();
+            }, 4000);
+        }
+
         function renderResponse(data, tabType) {
             const card = document.getElementById(`card-${tabType}`);
             card.style.display = 'block';
@@ -867,15 +1253,28 @@
                     badgeClass = 'status-active';
                     badgeText = 'Active';
                     const localExpiry = new Date(data.expires_at).toLocaleString();
+                    // #13 — Richer status display
+                    const keyType = data.key_type === 'trial' ? 'Trial' : 'Premium';
+                    const daysRow = data.days_remaining != null ? `
+                        <div class="data-row">
+                            <div class="data-label">Days Remaining</div>
+                            <div class="data-value" style="color: var(--accent-green); font-weight: 700;">${data.days_remaining}</div>
+                        </div>
+                    ` : '';
                     detailsHtml = `
                         <div class="data-row">
                             <div class="data-label">Key Status</div>
                             <div class="data-value" style="color: var(--accent-green); font-weight: 700;">ACTIVE LICENSE</div>
                         </div>
                         <div class="data-row">
+                            <div class="data-label">Key Type</div>
+                            <div class="data-value">${keyType}</div>
+                        </div>
+                        <div class="data-row">
                             <div class="data-label">Expiration Date</div>
                             <div class="data-value">${localExpiry}</div>
                         </div>
+                        ${daysRow}
                     `;
                 } else if (data.status === 'payment_required') {
                     badgeClass = 'status-payment';
